@@ -9,6 +9,7 @@ local ClanQuestProgressScheduler = require(ServerScriptService.ClanService.ClanQ
 local info = workspace.Info
 
 local mob = {}
+local DEFAULT_SPAWN_SPACING = 6
 
 function incrementpercentage(n, t, p) 
 	local r = n 
@@ -60,6 +61,114 @@ local function cloneScript(mobType, parent)
 	end
 end
 
+local function getWaypointFolder(map, team)
+	if not info.Versus.Value then
+		return map:FindFirstChild("Waypoints")
+			or map:FindFirstChild("Waypoints" .. tostring(workspace.Info.PathNumber.Value))
+	end
+
+	if not team then
+		return nil
+	end
+
+	return map:FindFirstChild(team .. "Waypoints")
+end
+
+local function getStartCFrame(map, team)
+	if not info.Versus.Value then
+		local startPart = map:FindFirstChild("Start")
+		if startPart then
+			return startPart.CFrame * CFrame.new(0, 3, 0)
+		end
+
+		local altStart = map:FindFirstChild("Start" .. tostring(workspace.Info.PathNumber.Value))
+		if altStart then
+			return altStart.CFrame
+		end
+	else
+		local versusStart = team and map:FindFirstChild(team .. "Start")
+		if versusStart then
+			return versusStart.CFrame
+		end
+	end
+
+	return nil
+end
+
+local function getPathDirection(startPosition, waypoints)
+	if not waypoints then
+		return nil
+	end
+
+	local firstWaypoint = waypoints:FindFirstChild("1") or waypoints:GetChildren()[1]
+	if not firstWaypoint then
+		return nil
+	end
+
+	local flatDirection = Vector3.new(
+		firstWaypoint.Position.X - startPosition.X,
+		0,
+		firstWaypoint.Position.Z - startPosition.Z
+	)
+
+	if flatDirection.Magnitude <= 0.01 then
+		return nil
+	end
+
+	return flatDirection.Unit
+end
+
+local function getSpawnSpacing(model)
+	local extents = model:GetExtentsSize()
+	return math.max(DEFAULT_SPAWN_SPACING, math.max(extents.X, extents.Z) * 0.8)
+end
+
+local function countQueuedMobs(startPosition, direction, spacing, team)
+	local mobFolder = team and workspace:FindFirstChild(team .. "Mobs") or workspace:FindFirstChild("Mobs")
+	if not mobFolder then
+		return 0
+	end
+
+	local queuedCount = 0
+	local queueDepth = spacing * 8
+
+	for _, existingMob in mobFolder:GetChildren() do
+		local rootPart = existingMob:FindFirstChild("HumanoidRootPart")
+		local movingTo = existingMob:FindFirstChild("MovingTo")
+
+		if rootPart and movingTo and movingTo.Value <= 2 then
+			local delta = rootPart.Position - startPosition
+			local distanceAlongLane = -delta:Dot(direction)
+			local lateralDistance = (delta - direction * delta:Dot(direction)).Magnitude
+
+			if distanceAlongLane >= -spacing and distanceAlongLane <= queueDepth and lateralDistance <= spacing * 1.5 then
+				queuedCount += 1
+			end
+		end
+	end
+
+	return queuedCount
+end
+
+local function getSpawnCFrame(newMob, map, team)
+	local startCFrame = getStartCFrame(map, team)
+	if not startCFrame then
+		return nil
+	end
+
+	local waypoints = getWaypointFolder(map, team)
+	local pathDirection = getPathDirection(startCFrame.Position, waypoints)
+	if not pathDirection then
+		return startCFrame
+	end
+
+	local spacing = getSpawnSpacing(newMob)
+	local queuedCount = countQueuedMobs(startCFrame.Position, pathDirection, spacing, team)
+	local spawnPosition = startCFrame.Position - (pathDirection * spacing * queuedCount)
+
+	return CFrame.lookAt(spawnPosition, spawnPosition + pathDirection)
+end
+
 function mob.Spawn(name, quantity, map, old, health, money, speed,isBoss,unitStats, isbossrush, team)
 	local mobExists = ReplicatedStorage.Enemies:FindFirstChild(name) -- [map.name]
 	local ogspeed = if workspace.Info.TestingMode.Value then 1 else unitStats.speed
@@ -96,20 +205,10 @@ function mob.Spawn(name, quantity, map, old, health, money, speed,isBoss,unitSta
 			if old then
 				newMob.HumanoidRootPart.CFrame = old.HumanoidRootPart.CFrame
 			else
-				if not info.Versus.Value then
-					if map:FindFirstChild("Start") then 
-						newMob:PivotTo(map.Start.CFrame * CFrame.new(Vector3.new(0,3,0)))
-						--newMob.HumanoidRootPart.CFrame = map.Start.CFrame
-
-					else
-						newMob:PivotTo(map["Start"..tostring(game.Workspace.Info.PathNumber.Value)].CFrame)
-						--newMob.HumanoidRootPart.CFrame = 
-					end
-				else
-					-- versus
-					newMob:PivotTo(map[team .. 'Start'].CFrame)
+				local spawnCFrame = getSpawnCFrame(newMob, map, team)
+				if spawnCFrame then
+					newMob:PivotTo(spawnCFrame)
 				end
-
 			end
 
 

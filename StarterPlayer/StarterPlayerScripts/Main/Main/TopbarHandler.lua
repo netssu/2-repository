@@ -31,13 +31,17 @@ local size = 0.7
 local XSize = 85
 
 local GameUI = PlayerGui:WaitForChild('GameGui')
+local TOPBAR_ICONS = {
+	Settings = 'rbxassetid://98211971158539',
+	Emote = 'rbxassetid://11713358131',
+}
 
 
 local name = 'Settings'
 local button = Simplebar.createButton(name)
 	:singleBind(true)
 	--:setColor(script[name]) -- white by default
-	:setImage('rbxassetid://131059016517582')
+	:setImage(TOPBAR_ICONS.Settings)
 	:setSize(size)
 	:setSide('Left')
 	:setCustomXSize(44)
