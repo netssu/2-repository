@@ -8,10 +8,10 @@ local vfxFolder = workspace.VFX
 local TS = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local VFX = rs.VFX
-local VFX_Helper = require(rs.Modules.VFX_Helper)
 local RocksModule = require(rs.Modules.RocksModule)
 local StoryModeStats = require(rs.StoryModeStats)
 local GameSpeed = workspace.Info.GameSpeed
+local VFX_Helper = require(rs.Modules:WaitForChild("VFX_Helper"))
 
 local function connect(p0, p1, c0)
 	local weld = Instance.new("Weld")
@@ -22,17 +22,8 @@ local function connect(p0, p1, c0)
 	return weld
 end
 
-local function emitParticles(particle: ParticleEmitter)
-	local delayTime = particle:GetAttribute("DelayTime") or 0
-	local emitCount = particle:GetAttribute("EmitCount") or 10
-
-	if delayTime > 0 then
-		task.delay(delayTime, function()
-			particle:Emit(emitCount)
-		end)
-	else
-		particle:Emit(emitCount)
-	end
+local function emitParticles(container)
+	VFX_Helper.EmitAllParticles(container)
 end
 
 module["Force Choke"] = function(HRP, target)
@@ -140,11 +131,7 @@ module["Force Throw"] = function(HRP, target)
 	throwFx.CFrame = HRP.CFrame
 	throwFx.Parent = workspace.VFX	
 	UnitSoundEffectLib.playSound(HRP.Parent, 'Force1')
-	for _, particle in throwFx:GetDescendants() do
-		if particle:IsA("ParticleEmitter") then
-			emitParticles(particle)
-		end
-	end
+	emitParticles(throwFx)
 
 	Debris:AddItem(throwFx, 1/speed)
 
@@ -158,14 +145,14 @@ module["Force Throw"] = function(HRP, target)
 	HRP.Parent.Attacking.Value = true
 
 	local pushDirection = (targetCF.Position-HRP.CFrame.Position).Unit
-	
+
 	local bodyVelocity = Instance.new("BodyVelocity")
 	bodyVelocity.Parent = Mob.HumanoidRootPart
 	bodyVelocity.Velocity = pushDirection * 40
 	bodyVelocity.MaxForce = Vector3.new(1,0,1) * 1000000
-	
+
 	warn('parented to the targets root part')
-	
+
 	Debris:AddItem(bodyVelocity, .2)
 
 	UnitSoundEffectLib.playSound(HRP.Parent, 'Explosion')
@@ -180,7 +167,7 @@ end
 
 module["Dual Wield"] = function(HRP, target)
 	task.wait(.5)
-	
+
 	if not HRP or not HRP.Parent or not target or not target:FindFirstChild("HumanoidRootPart") then
 		--warn("rejecting dual wield")
 		return
@@ -191,11 +178,8 @@ module["Dual Wield"] = function(HRP, target)
 
 	slash.CFrame = HRP.CFrame
 	slash.Parent = workspace.VFX
+	emitParticles(slash)
 
-	for _, particle in slash:GetDescendants() do
-		if not particle:IsA("ParticleEmitter") then continue end
-		emitParticles(particle)
-	end
 
 	Debris:AddItem(slash, 2)
 end

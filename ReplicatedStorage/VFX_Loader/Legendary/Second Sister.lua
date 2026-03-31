@@ -1,76 +1,71 @@
+-- SERVICES
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+
+-- CONSTANTS
+
+-- VARIABLES
 local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
+local VFX = ReplicatedStorage.VFX
+local VFX_Helper = require(ReplicatedStorage.Modules.VFX_Helper)
+local GameSpeed = workspace.Info.GameSpeed
+local vfxFolder = workspace.VFX
+local secondSisterVFX = VFX["Second Sister"]
 
 local module = {}
-local rs = game:GetService("ReplicatedStorage")
-local Effects = rs.VFX
-local vfxFolder = workspace.VFX
-local TS = game:GetService("TweenService")
-local Debris = game:GetService("Debris")
-local VFX = rs.VFX
-local VFX_Helper = require(rs.Modules.VFX_Helper)
-local tweenService = game:GetService("TweenService")
-local LightningSparks = require(rs.VFXModules.LightningBolt.LightningSparks)
-local LightningModule = require(rs.VFXModules.LightningModule)
 
-local GameSpeed = workspace.Info.GameSpeed
-
+-- FUNCTIONS
 local function getMag(pos1, pos2)
 	return (pos1 - pos2).Magnitude
 end
 
 local function tween(obj, length, details)
-	tweenService:Create(obj, TweenInfo.new(length, Enum.EasingStyle.Linear), details):Play()
+	TweenService:Create(obj, TweenInfo.new(length, Enum.EasingStyle.Linear), details):Play()
 end
 
+local function setEffectCFrame(effect, cf)
+	if not effect or not cf then
+		return effect
+	end
 
+	if effect:IsA("Model") then
+		effect:PivotTo(cf)
+	elseif effect:IsA("BasePart") then
+		effect.CFrame = cf
+	end
+
+	return effect
+end
+
+-- INIT
 module["Saber Throw"] = function(HRP, target)
-	local Folder = VFX["Second Sister"].First
-	local speed = GameSpeed.Value
-	local enemypos = Vector3.new(target.HumanoidRootPart.Position.X,HRP.Position.Y,target.HumanoidRootPart.Position.Z)
-	local saber = Folder["Saber Throw"]:Clone()
-	saber.CFrame = HRP.CFrame
-	saber.Parent = HRP.Parent
-	local Attachment = saber.Attachment
-	local tableEmit = {}
+	if not target or not target:FindFirstChild("HumanoidRootPart") then return end
 
-	local speed = 16
-	local enemyPos = target:GetPivot().Position
-	local timeToTravel = getMag(HRP.Position, enemyPos) / speed
-	
-	
+	local Folder = secondSisterVFX:FindFirstChild("First")
+	local gameSpeedMulti = GameSpeed.Value
+	local enemyPos = target.HumanoidRootPart.Position
+
 	HRP.Parent.Attacking.Value = true
-	
-	tween(saber, timeToTravel, {Position = enemyPos})
-	task.delay(timeToTravel, function()
-		saber:Destroy()
-	end)
-	--Debris:AddItem(saber, timeToTravel)
-	UnitSoundEffectLib.playSound(HRP.Parent, 'SaberSwing' .. tostring(math.random(1,2)))
+	UnitSoundEffectLib.playSound(HRP.Parent, 'SaberSwing' .. tostring(math.random(1, 2)))
 
-	for i,v in Attachment:GetChildren() do
-		table.insert(tableEmit, v)
+	local firstEffect = Folder and Folder:FindFirstChild("First")
+	if firstEffect then
+		local clone = firstEffect:Clone()
+		clone = setEffectCFrame(clone, HRP.CFrame)
+		clone.Parent = vfxFolder
+
+		local projectileSpeed = 16 * gameSpeedMulti
+		local timeToTravel = getMag(HRP.Position, enemyPos) / projectileSpeed
+
+		VFX_Helper.EmitAllParticles(clone)
+
+		tween(clone, timeToTravel, {Position = enemyPos})
+
+		Debris:AddItem(clone, timeToTravel + (1.5 / gameSpeedMulti))
 	end
-
-	for i,v in tableEmit do
-		v.Enabled = true
-		task.wait(0.1 / speed, function()
-			v.Enabled = false
-		end)
-	end
-
-	for i,v in saber:GetChildren() do
-		if v:IsA("Attachment") then
-			continue
-		else
-			v.Enabled = true
-		end
-	end
-
 
 	HRP.Parent.Attacking.Value = false
 end
-
-
 
 return module

@@ -13,20 +13,27 @@ local GameSpeed = workspace.Info.GameSpeed
 
 module["Burst Shot"] = function(HRP, target)
 	local speed = GameSpeed.Value
-	local x = 0.3
+	local x = 0.1 
 	local Folder = VFX["Hans"].First
 	local BallTemplate = Folder:WaitForChild("Ball")
 	local vfxFolder = workspace:WaitForChild("VFX")
 
-	task.wait(1 / speed)
 	VFX_Helper.SoundPlay(HRP, Folder.First)
 
 	local HRPCF = HRP.CFrame
 	if not HRP or not HRP.Parent then return end
 
 	HRP.Parent.Attacking.Value = true
-	local Range = HRP.Parent.Config:WaitForChild("Range").Value
-	local targetPosition = (HRPCF * CFrame.new(0, 0, -Range)).Position
+
+	local targetPosition
+	if target and target:FindFirstChild("HumanoidRootPart") then
+		targetPosition = target.HumanoidRootPart.Position
+	elseif target and target.PrimaryPart then
+		targetPosition = target.PrimaryPart.Position
+	else
+		local Range = HRP.Parent.Config:WaitForChild("Range").Value
+		targetPosition = (HRPCF * CFrame.new(0, 0, -Range)).Position
+	end
 
 	for i = 1, 4 do
 		if not HRP or not HRP.Parent then return end
@@ -43,7 +50,7 @@ module["Burst Shot"] = function(HRP, target)
 
 		UnitSoundEffectLib.playSound(HRP.Parent, 'BlasterBurst1')
 
-		task.wait(x / speed)
+		task.wait(x / speed) 
 	end
 
 	if not HRP or not HRP.Parent then return end

@@ -1,35 +1,43 @@
-local module = {}
-local rs = game:GetService("ReplicatedStorage")
-local Effects = rs.VFX
-local vfxFolder = workspace.VFX
-local TS = game:GetService("TweenService")
+-- SERVICES
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
-local VFX = rs.VFX
-local VFX_Helper = require(rs.Modules.VFX_Helper)
+
+-- CONSTANTS
+local VFX = ReplicatedStorage.VFX
+local VFX_Helper = require(ReplicatedStorage.Modules.VFX_Helper)
 local GameSpeed = workspace.Info.GameSpeed
+local vfxFolder = workspace.VFX
 
-module["Money Reward"] = function(HRP, target)
-	local Folder = VFX["B2 Farm"].First
-	local speed = GameSpeed.Value
+-- VARIABLES
+local module = {}
 
-	if not HRP or not HRP.Parent then return end
-	
-	VFX_Helper.SoundPlay(HRP,Folder.First)
-	
-	local Emit = Folder:WaitForChild("Part"):Clone()
-	Emit.Position = HRP.Position + Vector3.new(0,-1,0)
-	Emit.Parent = vfxFolder
-	Debris:AddItem(Emit,2)
-	task.wait(0.1/speed)
-	VFX_Helper.EmitAllParticles(Emit)
-	task.wait(0.15/speed)
-	if not HRP or not HRP.Parent then return end
-	local emitUp = Folder:WaitForChild("GoldEmit"):Clone()
-	emitUp.Position = HRP.Position
-	emitUp.Parent = vfxFolder
-	Debris:AddItem(emitUp,3/speed)
-	VFX_Helper.EmitAllParticles(emitUp)
-
+-- FUNCTIONS
+local function emitParticles(container)
+	VFX_Helper.EmitAllParticles(container)
 end
 
+module["Money Reward"] = function(HRP, target)
+	local speed = GameSpeed.Value or 1
+	local Folder = VFX["B2 Farm"].First
+
+	if not HRP or not HRP.Parent then return end
+
+	local soundEffect = Folder.First:FindFirstChildWhichIsA("Sound")
+
+	if soundEffect then
+		VFX_Helper.SoundPlay(HRP, soundEffect)
+	end
+
+	task.wait(0.15 / speed)
+	if not HRP or not HRP.Parent then return end
+
+	local emitUp = Folder.First:Clone()
+	emitUp.Position = HRP.Position
+	emitUp.Parent = vfxFolder
+	Debris:AddItem(emitUp, 3 / speed)
+
+	emitParticles(emitUp)
+end
+
+-- INIT
 return module

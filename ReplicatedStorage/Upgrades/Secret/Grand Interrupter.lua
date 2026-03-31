@@ -14,8 +14,8 @@ return {
 			{Damage = 1185, Range = 28.15, Cooldown = 6.7, AOEType = "Splash", Price = 5330, AOESize = 12, Type = "Ground", AttackName = "Force Lightning", MultiDamageDelays = {0.1, 0.1, 0.1, 0.1, 0.1}, AnimName = "Attack2"},
 			{Damage = 1334, Range = 30.1, Cooldown = 6.7, AOEType = "Splash", Price = 6350, AOESize = 12, Type = "Ground", AttackName = "Force Lightning", MultiDamageDelays = {0.1, 0.1, 0.1, 0.1, 0.1}, AnimName = "Attack2"},
 			{Damage = 1666, Range = 32.3, Cooldown = 6.6, AOEType = "Splash", Price = 7395, AOESize = 13, Type = "Ground", AttackName = "Force Lightning", MultiDamageDelays = {0.1, 0.1, 0.1, 0.1, 0.1}, AnimName = "Attack2"},
-			
-			
+
+
 
 		},
 		["Evolve"] = {

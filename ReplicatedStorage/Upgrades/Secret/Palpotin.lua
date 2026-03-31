@@ -13,8 +13,8 @@ return {
 			{Damage = 786, Range = 26.6, Cooldown = 6.6, AOEType = "Splash", Price = 4825, AOESize = 7.5, Type = "Ground", AttackName = "Doom Bolt", MultiDamageDelays = {1.9}, AnimName = "Attack2"},
 			{Damage = 934, Range = 27.8, Cooldown = 6.4, AOEType = "Splash", Price = 6610, AOESize = 8, Type = "Ground", AttackName = "Doom Bolt", MultiDamageDelays = {1.9}, AnimName = "Attack2"},
 			{Damage = 1346, Range = 31, Cooldown = 5.4, AOEType = "Splash", Price = 8950, AOESize = 8, Type = "Ground", AttackName = "Doom Bolt", MultiDamageDelays = {1.9}, AnimName = "Attack2"},
-			
-			
+
+
 
 		},
 		["Evolve"] = {

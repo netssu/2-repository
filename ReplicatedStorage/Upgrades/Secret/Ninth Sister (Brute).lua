@@ -1,4 +1,4 @@
-	
+
 return {
 	["Ninth Sister (Brute)"] = {
 		MaxUpgrades = 9,

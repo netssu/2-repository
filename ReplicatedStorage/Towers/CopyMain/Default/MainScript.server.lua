@@ -267,32 +267,35 @@ local functions = {
 		task.wait(TowerInfo.GetCooldown(script.Parent))
 	end,
 
-	--["Hybrid"] = function(upgradeStats)
-	--	local target = nil
-	--	repeat
-	--		task.wait(0.1)
-	--		target = TowerFunctions.FindTarget(script.Parent)
-	--	until target ~= nil
+	["Hybrid"] = function(upgradeStats)
+		local target = nil
+		repeat
+			task.wait(0.1)
+			target = TowerFunctions.FindTarget(script.Parent)
+		until target ~= nil
 
-	--	if script.Parent.Animations:FindFirstChild(upgradeStats.AnimName) then
-	--		game.ReplicatedStorage.Events.AnimateTower:FireAllClients(script.Parent, upgradeStats.AnimName, target)
-	--	end
+		if script.Parent.Animations:FindFirstChild(upgradeStats.AnimName) then
+			game.ReplicatedStorage.Events.AnimateTower:FireAllClients(script.Parent, upgradeStats.AnimName, target)
+		end
 
-	--	local newTargetPosition = Vector3.new(target.HumanoidRootPart.Position.X,script.Parent.TowerBasePart.Position.Y,target.HumanoidRootPart.Position.Z) 
-	--	local targetCFrame = CFrame.lookAt(script.Parent.TowerBasePart.Position, newTargetPosition)
-	--	script.Parent.TowerBasePart.CFrame = targetCFrame
+		local currentPivot = script.Parent:GetPivot()
+		local newTargetPosition = Vector3.new(target.HumanoidRootPart.Position.X, currentPivot.Position.Y, target.HumanoidRootPart.Position.Z) 
+		local targetCFrame = CFrame.lookAt(currentPivot.Position, newTargetPosition)
+		script.Parent:PivotTo(targetCFrame)
 
-	--	--print(UnitName.Name, upgradeStats.AttackName)
-	--	game.ReplicatedStorage.Events.VFX_Remote:FireAllClients({UnitName.Name,upgradeStats.AttackName},script.Parent.HumanoidRootPart,target)
+		game.ReplicatedStorage.Events.VFX_Remote:FireAllClients({UnitName.Name,upgradeStats.AttackName},script.Parent.HumanoidRootPart,target)
 
-	--	TowerFunctions.DamageFunction(script.Parent,target)
+		TowerFunctions.DamageFunction(script.Parent,target)
 
-	--	local attackDuration = 0
-	--	for i, v in upgradeStats.MultiDamageDelays do
-	--		attackDuration += v
-	--	end
-	--	task.wait(TowerInfo.GetCooldown(script.Parent))
-	--end,
+		local attackDuration = 0
+		if upgradeStats.MultiDamageDelays then
+			for i, v in upgradeStats.MultiDamageDelays do
+				attackDuration += v
+			end
+		end
+
+		task.wait(TowerInfo.GetCooldown(script.Parent))
+	end,
 	['Support'] = function(upgradeStats)
 		warn(script.Parent:GetDescendants())
 		SupportFunctions[script.Parent.Name](script.Parent, upgradeStats)

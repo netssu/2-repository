@@ -7,12 +7,7 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 
 local loadingGui = TeleportService:GetArrivingTeleportGui()
 
-
-
-
-
 local ForceLoad = false
-
 
 function LoadIntoGame()
 	if loadingGui then
@@ -35,18 +30,11 @@ if loadingGui then
 	ReplicatedFirst:RemoveDefaultLoadingScreen()
 end
 
-local assetsToPreload = {}
+local assetsToPreload = game:GetDescendants()
 
-for _, asset in game.ReplicatedStorage:WaitForChild("Towers"):GetDescendants() do
-	if asset:IsA("Animation") then
-		table.insert(assetsToPreload, asset)
-	end
-end
 if #assetsToPreload > 0 then
 	ContentProvider:PreloadAsync(assetsToPreload)
 end
-ContentProvider:PreloadAsync(workspace:GetChildren())
-
 
 local dots = {
 	".",

@@ -346,80 +346,73 @@ module.SpawnerFindTarget = function(vehicle:Model)
 	return targets
 end
 
-
 module.DamageFunction = function(tower:Model,target:Model)
-    local config = tower.Config
+	local config = tower.Config
 	local damage = TowerInfo.GetDamage(tower, target)
 	local upgradeStats = upgradesModule[tower.Name]["Upgrades"][config.Upgrades.Value]
-	
-	-- Spawner Damage logic
+
 	if upgradeStats.Type == 'Spawner' then
 		if target:FindFirstChild('Humanoid') then
 			module.TakeDamage(target.Humanoid, tower, damage)
 		end
 		return
 	end
-	
-	
-    if tower:FindFirstChild("SplashPositionPart") then
-        if target then
-            tower.SplashPositionPart.CFrame = CFrame.new(target.HumanoidRootPart.Position) * CFrame.new(0,tower.HumanoidRootPart.Size.Y*-1.45,0)
-        end
-    else
-        local SplashPositionPart = Instance.new("Part")
-        SplashPositionPart.Name = "SplashPositionPart"
-        SplashPositionPart.Size = Vector3.new(0.01,0.01,0.01)
-        SplashPositionPart.CanCollide = false
-        SplashPositionPart.CanTouch = false
-        SplashPositionPart.CanQuery = false
-        SplashPositionPart.Anchored = true
-        SplashPositionPart.Transparency = 1
-        SplashPositionPart.CFrame = if target then CFrame.new(target.HumanoidRootPart.Position) * CFrame.new(0,tower.HumanoidRootPart.Size.Y*-1.45,0)
-            else tower.HumanoidRootPart.CFrame*CFrame.new(0,tower.HumanoidRootPart.Size.Y*-1.45,-config.AOESize*1.5)
-        Instance.new("Attachment",SplashPositionPart)
-        SplashPositionPart.Parent = tower
-    end
 
-    if upgradeStats.AOEType then
-        if upgradeStats.AOEType == "Cone" then
+	if tower:FindFirstChild("SplashPositionPart") then
+		if target then
+			tower.SplashPositionPart.CFrame = CFrame.new(target.HumanoidRootPart.Position) * CFrame.new(0,tower.HumanoidRootPart.Size.Y*-1.45,0)
+		end
+	else
+		local SplashPositionPart = Instance.new("Part")
+		SplashPositionPart.Name = "SplashPositionPart"
+		SplashPositionPart.Size = Vector3.new(0.01,0.01,0.01)
+		SplashPositionPart.CanCollide = false
+		SplashPositionPart.CanTouch = false
+		SplashPositionPart.CanQuery = false
+		SplashPositionPart.Anchored = true
+		SplashPositionPart.Transparency = 1
+		SplashPositionPart.CFrame = if target then CFrame.new(target.HumanoidRootPart.Position) * CFrame.new(0,tower.HumanoidRootPart.Size.Y*-1.45,0)
+			else tower.HumanoidRootPart.CFrame*CFrame.new(0,tower.HumanoidRootPart.Size.Y*-1.45,-config.AOESize*1.5)
+		Instance.new("Attachment",SplashPositionPart)
+		SplashPositionPart.Parent = tower
+	end
+
+	if upgradeStats.AOEType then
+		if upgradeStats.AOEType == "Cone" then
 			if upgradeStats.MultiDamageDelays then
-                for i=1, #upgradeStats.MultiDamageDelays do
-					task.wait(upgradeStats.MultiDamageDelays[i] / game.Workspace.Info.GameSpeed.Value)
-                    module.ConeAOE(tower.TowerBasePart,tower,upgradeStats.AOESize,(damage)/#upgradeStats.MultiDamageDelays)
-                end
-            else
-                module.ConeAOE(tower.TowerBasePart,tower,upgradeStats.AOESize,damage)
-            end
-        elseif upgradeStats.AOEType == "Splash" then
-            if upgradeStats.MultiDamageDelays then
-                local targetCFrame = target.HumanoidRootPart.CFrame
-                local firstHit = true
-                for i=1, #upgradeStats.MultiDamageDelays do
-                    task.wait(upgradeStats.MultiDamageDelays[i]/game.Workspace.Info.GameSpeed.Value)
-                    if firstHit then
+				for i=1, #upgradeStats.MultiDamageDelays do
+					module.ConeAOE(tower.TowerBasePart,tower,upgradeStats.AOESize,(damage)/#upgradeStats.MultiDamageDelays)
+				end
+			else
+				module.ConeAOE(tower.TowerBasePart,tower,upgradeStats.AOESize,damage)
+			end
+		elseif upgradeStats.AOEType == "Splash" then
+			if upgradeStats.MultiDamageDelays then
+				local targetCFrame = target.HumanoidRootPart.CFrame
+				local firstHit = true
+				for i=1, #upgradeStats.MultiDamageDelays do
+					if firstHit then
 						local possibleNewTarget = module.FindTarget(tower)
 						--print("new target",possibleNewTarget) -- this is very slow for some reason
-                        targetCFrame = (possibleNewTarget and possibleNewTarget.HumanoidRootPart.CFrame) or targetCFrame
-                        firstHit = false
-                    end
-                    module.Splash(tower,targetCFrame,(damage)/#upgradeStats.MultiDamageDelays)
-                end
-            else
-                module.Splash(tower,target.HumanoidRootPart.CFrame,damage)
-            end
-        elseif upgradeStats.AOEType == "AOE" then
-            if upgradeStats.MultiDamageDelays then
-                for i=1, #upgradeStats.MultiDamageDelays do
-                    task.wait(upgradeStats.MultiDamageDelays[i] / game.Workspace.Info.GameSpeed.Value)
-                    module.AOE(tower,damage/#upgradeStats.MultiDamageDelays)
-                end
-            else
-                module.AOE(tower,damage)
-            end
-        end
-    end
+						targetCFrame = (possibleNewTarget and possibleNewTarget.HumanoidRootPart.CFrame) or targetCFrame
+						firstHit = false
+					end
+					module.Splash(tower,targetCFrame,(damage)/#upgradeStats.MultiDamageDelays)
+				end
+			else
+				module.Splash(tower,target.HumanoidRootPart.CFrame,damage)
+			end
+		elseif upgradeStats.AOEType == "AOE" then
+			if upgradeStats.MultiDamageDelays then
+				for i=1, #upgradeStats.MultiDamageDelays do
+					module.AOE(tower,damage/#upgradeStats.MultiDamageDelays)
+				end
+			else
+				module.AOE(tower,damage)
+			end
+		end
+	end
 end
-
 
 
 return module

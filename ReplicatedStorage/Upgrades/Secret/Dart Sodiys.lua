@@ -5,7 +5,7 @@ return {
 		["Rarity"] = "Secret",
 		["Place Limit"] = 3,
 		["NotInBanner"] = true,
-			["Upgrades"] = {
+		["Upgrades"] = {
 			{Damage = 96, Range = 21.3, Cooldown = 4.5, AOEType = "Cone", Price = 1090, AOESize = 14, Type = "Ground", AttackName = "Palpotin light", MultiDamageDelays = {0.8}, AnimName = "Attack1"},
 			{Damage = 166, Range = 22, Cooldown = 4.45, AOEType = "Cone", Price = 1875, AOESize = 14, Type = "Ground", AttackName = "Palpotin light", MultiDamageDelays = {0.8}, AnimName = "Attack1"},
 			{Damage = 222, Range = 22.9, Cooldown = 4.3, AOEType = "Cone", Price = 2680, AOESize = 14, Type = "Ground", AttackName = "Palpotin light", MultiDamageDelays = {0.8}, AnimName = "Attack1"},

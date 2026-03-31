@@ -1,17 +1,14 @@
-------------------//SERVICES
 local Players: Players = game:GetService("Players")
 local ReplicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService: ServerScriptService = game:GetService("ServerScriptService")
 local Debris: Debris = game:GetService("Debris")
 
-------------------//CONSTANTS
 local PROJECTILE_LIFETIME: number = 5
 local ABILITY_STUN_DURATION: number = 0.6
 local ALLOWED_POSSESSION_RARITIES: {[string]: boolean} = {
 	Secret = true,
 }
 
-------------------//VARIABLES
 local events: Folder = ReplicatedStorage:WaitForChild("Events")
 local possessEvent: RemoteEvent = events:WaitForChild("PossessTower")
 local shootEvent: RemoteEvent = events:WaitForChild("PossessShoot")
@@ -20,15 +17,13 @@ local playVFXEvent: RemoteEvent = events:WaitForChild("PlayPossessVFX")
 local upgradesModule = require(ReplicatedStorage:WaitForChild("Upgrades"))
 local towerFunctionModule = require(ServerScriptService:WaitForChild("Main"):WaitForChild("TowerFunctions"))
 
-local playerPossessions = {}
+local playerPossessions: {[Player]: Model} = {}
 
-------------------//FUNCTIONS
 local function get_towers_folder(): Folder?
 	local towersFolder = workspace:FindFirstChild("Towers")
 	if towersFolder and towersFolder:IsA("Folder") then
 		return towersFolder
 	end
-
 	return nil
 end
 
@@ -36,11 +31,60 @@ local function get_vfx_parent(): Instance
 	return workspace:FindFirstChild("VFX") or workspace
 end
 
+local function read_numeric_upgrade_value(valueObject: Instance?): number?
+	if not valueObject then
+		return nil
+	end
+
+	if valueObject:IsA("IntValue") or valueObject:IsA("NumberValue") then
+		return valueObject.Value
+	end
+
+	if valueObject:IsA("StringValue") then
+		return tonumber(valueObject.Value)
+	end
+
+	return nil
+end
+
+local function resolve_tower_upgrade_index(towerModel: Model, towerData: {[string]: any}?): number
+	local maxUpgradeIndex = (towerData and towerData.Upgrades and #towerData.Upgrades) or 1
+	local config = towerModel:FindFirstChild("Config")
+
+	local rawUpgrade: number? = nil
+
+	if config then
+		rawUpgrade = read_numeric_upgrade_value(config:FindFirstChild("Upgrades"))
+	end
+
+	if rawUpgrade == nil then
+		local attrUpgrades = towerModel:GetAttribute("Upgrades")
+		if attrUpgrades ~= nil then
+			rawUpgrade = tonumber(attrUpgrades)
+		end
+	end
+
+	if rawUpgrade == nil and config then
+		rawUpgrade = read_numeric_upgrade_value(config:FindFirstChild("Upgrade"))
+	end
+
+	if rawUpgrade == nil then
+		local attrUpgrade = towerModel:GetAttribute("Upgrade")
+		if attrUpgrade ~= nil then
+			rawUpgrade = tonumber(attrUpgrade)
+		end
+	end
+
+	rawUpgrade = math.max(1, math.floor(rawUpgrade or 1))
+	local progressionIndex = math.clamp(rawUpgrade, 1, maxUpgradeIndex)
+
+	return progressionIndex
+end
+
 local function getTowerStats(towerModel: Model): {[string]: any}
 	local towerName = towerModel.Name
-	local config = towerModel:FindFirstChild("Config")
-	local upgradeValue = config and config:FindFirstChild("Upgrade")
-	local upgradeLevel = towerModel:GetAttribute("Upgrade") or (upgradeValue and upgradeValue:IsA("IntValue") and upgradeValue.Value) or 1
+	local towerData = upgradesModule[towerName]
+	local upgradeIndex = resolve_tower_upgrade_index(towerModel, towerData)
 
 	local stats = {
 		Damage = 10,
@@ -52,73 +96,79 @@ local function getTowerStats(towerModel: Model): {[string]: any}
 		Rarity = nil,
 		BasicAttack = nil,
 		Abilities = {},
+		MultiDamageDelays = nil
 	}
 
-	local towerData = upgradesModule[towerName]
-	if towerData and towerData.Upgrades then
-		stats.Rarity = towerData.Rarity
+	if not towerData or not towerData.Upgrades or not towerData.Upgrades[1] then
+		return stats
+	end
 
-		local firstUpgrade = towerData.Upgrades[1]
-		if firstUpgrade then
-			stats.BasicAttack = {
-				Damage = firstUpgrade.Damage or stats.Damage,
-				Cooldown = firstUpgrade.Cooldown or stats.Cooldown,
-				Range = firstUpgrade.Range or stats.Range,
-				AOESize = firstUpgrade.AOESize or stats.AOESize,
-				AttackName = firstUpgrade.AttackName,
-				AOEType = firstUpgrade.AOEType or stats.AOEType,
+	stats.Rarity = towerData.Rarity
+
+	local baseUpgrade = towerData.Upgrades[1]
+	stats.BasicAttack = {
+		Damage = baseUpgrade.Damage or stats.Damage,
+		Cooldown = baseUpgrade.Cooldown or stats.Cooldown,
+		Range = baseUpgrade.Range or stats.Range,
+		AOESize = baseUpgrade.AOESize or stats.AOESize,
+		AttackName = baseUpgrade.AttackName,
+		AOEType = baseUpgrade.AOEType or stats.AOEType,
+		MultiDamageDelays = baseUpgrade.MultiDamageDelays,
+	}
+
+	local attackProgression: {[string]: {[string]: any}} = {}
+	for index, upgradeData in ipairs(towerData.Upgrades) do
+		if index > upgradeIndex then
+			break
+		end
+
+		local attackName = upgradeData.AttackName
+		if attackName then
+			attackProgression[attackName] = {
+				Damage = upgradeData.Damage or stats.Damage,
+				Cooldown = upgradeData.Cooldown or stats.Cooldown,
+				Range = upgradeData.Range or stats.Range,
+				AOESize = upgradeData.AOESize or stats.AOESize,
+				AttackName = attackName,
+				AOEType = upgradeData.AOEType or stats.AOEType,
+				MultiDamageDelays = upgradeData.MultiDamageDelays,
 			}
 		end
+	end
 
-		local attackProgression = {}
-		for index, upgradeData in ipairs(towerData.Upgrades) do
-			if index > upgradeLevel then
-				break
-			end
+	local currentUpgrade = towerData.Upgrades[upgradeIndex]
+	if currentUpgrade then
+		stats.Damage = currentUpgrade.Damage or stats.Damage
+		stats.Cooldown = currentUpgrade.Cooldown or stats.Cooldown
+		stats.Range = currentUpgrade.Range or stats.Range
+		stats.AOESize = currentUpgrade.AOESize or stats.AOESize
+		stats.AttackName = currentUpgrade.AttackName
+		stats.AOEType = currentUpgrade.AOEType or stats.AOEType
+		stats.MultiDamageDelays = currentUpgrade.MultiDamageDelays
+	end
 
-			local attackName = upgradeData.AttackName
-			if attackName then
-				attackProgression[attackName] = {
-					Damage = upgradeData.Damage or stats.Damage,
-					Cooldown = upgradeData.Cooldown or stats.Cooldown,
-					Range = upgradeData.Range or stats.Range,
-					AOESize = upgradeData.AOESize or stats.AOESize,
-					AttackName = attackName,
-					AOEType = upgradeData.AOEType or stats.AOEType,
-				}
-			end
+	local basicAttackName = stats.BasicAttack and stats.BasicAttack.AttackName
+	if basicAttackName and attackProgression[basicAttackName] then
+		stats.BasicAttack = attackProgression[basicAttackName]
+	end
+
+	local abilityNames: {string} = {}
+	for index, upgradeData in ipairs(towerData.Upgrades) do
+		if index > upgradeIndex then
+			break
 		end
 
-		local currentUpgrade = towerData.Upgrades[upgradeLevel]
-		if currentUpgrade then
-			stats.Damage = currentUpgrade.Damage or stats.Damage
-			stats.Cooldown = currentUpgrade.Cooldown or stats.Cooldown
-			stats.Range = currentUpgrade.Range or stats.Range
-			stats.AOESize = currentUpgrade.AOESize or stats.AOESize
-			stats.AttackName = currentUpgrade.AttackName
-			stats.AOEType = currentUpgrade.AOEType or stats.AOEType
-		end
-
-		local basicAttackName = stats.BasicAttack and stats.BasicAttack.AttackName
-		if basicAttackName and attackProgression[basicAttackName] then
-			stats.BasicAttack = attackProgression[basicAttackName]
-		end
-
-		local abilityNames = {}
-		for _, upgradeData in ipairs(towerData.Upgrades) do
-			local attackName = upgradeData.AttackName
-			if attackName and attackName ~= basicAttackName and attackProgression[attackName] then
-				if not table.find(abilityNames, attackName) then
-					table.insert(abilityNames, attackName)
-				end
+		local attackName = upgradeData.AttackName
+		if attackName and attackName ~= basicAttackName and attackProgression[attackName] then
+			if not table.find(abilityNames, attackName) then
+				table.insert(abilityNames, attackName)
 			end
 		end
+	end
 
-		for i = 1, 2 do
-			local abilityName = abilityNames[i]
-			if abilityName and attackProgression[abilityName] then
-				stats.Abilities[i] = attackProgression[abilityName]
-			end
+	for i = 1, 2 do
+		if abilityNames[i] and attackProgression[abilityNames[i]] then
+			stats.Abilities[i] = attackProgression[abilityNames[i]]
 		end
 	end
 
@@ -134,28 +184,26 @@ local function build_possession_ui_data(stats: {[string]: any}): {[string]: any}
 		return {
 			Name = attackData.AttackName or "Ability",
 			Cooldown = attackData.Cooldown or 1,
+			AOEType = attackData.AOEType,
+			AOESize = attackData.AOESize,
+			Range = attackData.Range
 		}
 	end
 
-	return {
+	local uiData = {
 		Basic = pack_attack_data(stats.BasicAttack),
 		Abilities = {
 			pack_attack_data(stats.Abilities[1]),
 			pack_attack_data(stats.Abilities[2]),
 		},
 	}
+
+	return uiData
 end
 
 local function setCharacterVisibility(char: Model, isVisible: boolean): ()
 	for _, obj in ipairs(char:GetDescendants()) do
-		if obj:IsA("BasePart") and obj.Name ~= "HumanoidRootPart" then
-			if not isVisible then
-				obj:SetAttribute("OldTrans", obj.Transparency)
-				obj.Transparency = 1
-			else
-				obj.Transparency = obj:GetAttribute("OldTrans") or 0
-			end
-		elseif obj:IsA("Decal") and obj.Name == "face" then
+		if (obj:IsA("BasePart") and obj.Name ~= "HumanoidRootPart") or (obj:IsA("Decal") and obj.Name == "face") then
 			if not isVisible then
 				obj:SetAttribute("OldTrans", obj.Transparency)
 				obj.Transparency = 1
@@ -168,37 +216,21 @@ end
 
 local function restore_bodygyro_state(towerModel: Model): ()
 	local humanoidRootPart = towerModel:FindFirstChild("HumanoidRootPart")
-	if not humanoidRootPart or not humanoidRootPart:IsA("BasePart") then
-		return
-	end
-
-	local bodyGyro = humanoidRootPart:FindFirstChildOfClass("BodyGyro")
-	if not bodyGyro then
-		return
-	end
-
-	local originalTorque = towerModel:GetAttribute("OriginalBodyGyroMaxTorque")
-	if originalTorque and typeof(originalTorque) == "Vector3" then
-		bodyGyro.MaxTorque = originalTorque
+	local bodyGyro = humanoidRootPart and humanoidRootPart:FindFirstChildOfClass("BodyGyro")
+	if bodyGyro and towerModel:GetAttribute("OriginalBodyGyroMaxTorque") then
+		bodyGyro.MaxTorque = towerModel:GetAttribute("OriginalBodyGyroMaxTorque")
 	end
 end
 
 local function disable_bodygyro_state(towerModel: Model): ()
 	local humanoidRootPart = towerModel:FindFirstChild("HumanoidRootPart")
-	if not humanoidRootPart or not humanoidRootPart:IsA("BasePart") then
-		return
+	local bodyGyro = humanoidRootPart and humanoidRootPart:FindFirstChildOfClass("BodyGyro")
+	if bodyGyro then
+		if towerModel:GetAttribute("OriginalBodyGyroMaxTorque") == nil then
+			towerModel:SetAttribute("OriginalBodyGyroMaxTorque", bodyGyro.MaxTorque)
+		end
+		bodyGyro.MaxTorque = Vector3.zero
 	end
-
-	local bodyGyro = humanoidRootPart:FindFirstChildOfClass("BodyGyro")
-	if not bodyGyro then
-		return
-	end
-
-	if towerModel:GetAttribute("OriginalBodyGyroMaxTorque") == nil then
-		towerModel:SetAttribute("OriginalBodyGyroMaxTorque", bodyGyro.MaxTorque)
-	end
-
-	bodyGyro.MaxTorque = Vector3.zero
 end
 
 local function set_tower_baseparts_cframe(towerModel: Model, targetCFrame: CFrame): ()
@@ -212,34 +244,30 @@ end
 
 local function unpossessTower(player: Player, char: Model?): ()
 	local towerModel = playerPossessions[player]
-	local towersFolder = get_towers_folder()
-
 	if towerModel and towerModel.Parent then
 		local humanoidRootPart = towerModel:FindFirstChild("HumanoidRootPart")
-
 		if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-			if not humanoidRootPart.Anchored then
-				pcall(function()
-					humanoidRootPart:SetNetworkOwner(nil)
-				end)
-			end
-
+			pcall(function()
+				humanoidRootPart:SetNetworkOwner(nil)
+			end)
 			humanoidRootPart.Anchored = true
+			humanoidRootPart.AssemblyLinearVelocity = Vector3.zero
 		end
 
 		towerModel:SetAttribute("Possessed", false)
 		restore_bodygyro_state(towerModel)
 
 		local config = towerModel:FindFirstChild("Config")
-		local canAttack = config and config:FindFirstChild("CanAttack")
-		if canAttack and canAttack:IsA("BoolValue") then
-			canAttack.Value = true
+		if config and config:FindFirstChild("CanAttack") and config.CanAttack:IsA("BoolValue") then
+			config.CanAttack.Value = true
 		end
 
 		local originalCFrame = towerModel:GetAttribute("OriginalCFrame")
-		if originalCFrame and typeof(originalCFrame) == "CFrame" and humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-			humanoidRootPart.CFrame = originalCFrame
-			set_tower_baseparts_cframe(towerModel, originalCFrame)
+		if originalCFrame and humanoidRootPart then
+			task.delay(0.1, function()
+				humanoidRootPart.CFrame = originalCFrame
+				set_tower_baseparts_cframe(towerModel, originalCFrame)
+			end)
 		end
 	end
 
@@ -251,66 +279,50 @@ local function unpossessTower(player: Player, char: Model?): ()
 		if humanoidRootPart and humanoidRootPart:IsA("BasePart") then
 			humanoidRootPart.Anchored = false
 		end
-
 		setCharacterVisibility(char, true)
 
-		local originalCFrame = char:GetAttribute("OriginalCFrame")
-		if originalCFrame and typeof(originalCFrame) == "CFrame" and humanoidRootPart and humanoidRootPart:IsA("BasePart") then
-			humanoidRootPart.CFrame = originalCFrame
+		local originalCharCFrame = char:GetAttribute("OriginalCFrame")
+		if originalCharCFrame and humanoidRootPart then
+			task.delay(0.1, function()
+				humanoidRootPart.CFrame = originalCharCFrame
+			end)
 		end
 	end
 end
 
 local function processPossessionRequest(player: Player, towerModel: Instance?): ()
 	local char = player.Character
-	if not char then
-		return
-	end
-
-	local characterRoot = char:FindFirstChild("HumanoidRootPart")
+	local characterRoot = char and char:FindFirstChild("HumanoidRootPart")
 	if not characterRoot or not characterRoot:IsA("BasePart") then
 		return
 	end
 
-	if towerModel == nil then
+	if not towerModel or not towerModel:IsA("Model") or not towerModel:IsDescendantOf(get_towers_folder() or workspace) then
 		unpossessTower(player, char)
 		possessEvent:FireClient(player, nil, false)
 		return
 	end
 
-	if not towerModel:IsA("Model") then
-		return
-	end
-
-	local towersFolder = get_towers_folder()
-	if not towersFolder or not towerModel:IsDescendantOf(towersFolder) then
-		return
-	end
-
 	local towerStats = getTowerStats(towerModel)
-	if not ALLOWED_POSSESSION_RARITIES[towerStats.Rarity] then
-		possessEvent:FireClient(player, nil, false)
-		return
-	end
-
 	local towerRoot = towerModel:FindFirstChild("HumanoidRootPart")
-	if not towerRoot or not towerRoot:IsA("BasePart") then
+	if not ALLOWED_POSSESSION_RARITIES[towerStats.Rarity] or not towerRoot or not towerRoot:IsA("BasePart") then
 		possessEvent:FireClient(player, nil, false)
 		return
 	end
 
-	local currentOwner = towerModel:GetAttribute("Possessed")
-	local currentTower = playerPossessions[player]
-
-	if currentOwner and currentTower ~= towerModel then
+	if towerModel:GetAttribute("Possessed") and playerPossessions[player] ~= towerModel then
 		possessEvent:FireClient(player, nil, false)
 		return
 	end
 
 	unpossessTower(player, char)
 
-	char:SetAttribute("OriginalCFrame", characterRoot.CFrame)
-	towerModel:SetAttribute("OriginalCFrame", towerRoot.CFrame)
+	if not char:GetAttribute("OriginalCFrame") then
+		char:SetAttribute("OriginalCFrame", characterRoot.CFrame)
+	end
+	if not towerModel:GetAttribute("OriginalCFrame") then
+		towerModel:SetAttribute("OriginalCFrame", towerRoot.CFrame)
+	end
 
 	characterRoot.Anchored = true
 	setCharacterVisibility(char, false)
@@ -320,27 +332,34 @@ local function processPossessionRequest(player: Player, towerModel: Instance?): 
 	towerModel:SetAttribute("Possessed", true)
 
 	disable_bodygyro_state(towerModel)
-
 	towerRoot.Anchored = false
 	pcall(function()
 		towerRoot:SetNetworkOwner(player)
 	end)
 
 	local config = towerModel:FindFirstChild("Config")
-	local canAttack = config and config:FindFirstChild("CanAttack")
-	if canAttack and canAttack:IsA("BoolValue") then
-		canAttack.Value = false
+	if config and config:FindFirstChild("CanAttack") and config.CanAttack:IsA("BoolValue") then
+		config.CanAttack.Value = false
 	end
 
-	possessEvent:FireClient(player, towerModel, true, build_possession_ui_data(towerStats))
+	local uiData = build_possession_ui_data(towerStats)
+
+	possessEvent:FireClient(player, towerModel, true, uiData)
+end
+
+local function tag_humanoid(humanoid: Humanoid, player: Player)
+	local creatorTag = humanoid:FindFirstChild("creator")
+	if not creatorTag then
+		creatorTag = Instance.new("ObjectValue")
+		creatorTag.Name = "creator"
+		creatorTag.Parent = humanoid
+	end
+	creatorTag.Value = player
+	Debris:AddItem(creatorTag, 2)
 end
 
 local function onPossessShoot(player: Player, targetPosition: Vector3, lookVector: Vector3, abilitySlot: number?): ()
 	if typeof(targetPosition) ~= "Vector3" or typeof(lookVector) ~= "Vector3" then
-		return
-	end
-
-	if abilitySlot ~= nil and typeof(abilitySlot) ~= "number" then
 		return
 	end
 
@@ -369,58 +388,69 @@ local function onPossessShoot(player: Player, targetPosition: Vector3, lookVecto
 		end
 	end
 
-	if not selectedAttack then
-		selectedAttack = {
-			Damage = stats.Damage,
-			Cooldown = stats.Cooldown,
-			Range = stats.Range,
-			AOESize = stats.AOESize,
-			AttackName = stats.AttackName,
-			AOEType = stats.AOEType,
-		}
-	end
+	selectedAttack = selectedAttack or {
+		Damage = stats.Damage,
+		Cooldown = stats.Cooldown,
+		Range = stats.Range,
+		AOESize = stats.AOESize,
+		AttackName = stats.AttackName,
+		AOEType = stats.AOEType,
+		MultiDamageDelays = stats.MultiDamageDelays
+	}
 
 	local now = os.clock()
 	local lastShotAttribute = abilitySlot and string.format("LastShot_Ability%d", abilitySlot) or "LastShot_Basic"
-	local lastShot = towerModel:GetAttribute(lastShotAttribute) or 0
-
-	if now - lastShot < selectedAttack.Cooldown then
+	if now - (towerModel:GetAttribute(lastShotAttribute) or 0) < selectedAttack.Cooldown then
 		return
 	end
 
 	towerModel:SetAttribute(lastShotAttribute, now)
-
-	if abilitySlot and abilitySlot >= 1 and abilitySlot <= 2 then
+	if abilitySlot then
 		towerModel:SetAttribute("PossessionStunnedUntil", now + ABILITY_STUN_DURATION)
 	end
 
-	local isMelee = selectedAttack.Range <= 15
-	local direction = (targetPosition - spawnPart.Position).Unit
-
-	if direction.Magnitude ~= direction.Magnitude then
-		direction = lookVector.Unit
-	end
-
-	local maxTargetDistance = isMelee and selectedAttack.Range or 2000
-
+	local maxTargetDistance = selectedAttack.Range or 20
 	set_tower_baseparts_cframe(towerModel, spawnPart.CFrame)
 
 	local hitPosition = targetPosition
 	local rayResult: RaycastResult? = nil
 	local mobsFolder = workspace:FindFirstChild("Mobs")
 
-	if mobsFolder then
-		local raycastParams = RaycastParams.new()
-		raycastParams.FilterDescendantsInstances = {mobsFolder}
-		raycastParams.FilterType = Enum.RaycastFilterType.Include
+	if selectedAttack.AOEType == "Splash" then
+		local flatTowerPos = Vector3.new(spawnPart.Position.X, targetPosition.Y, spawnPart.Position.Z)
+		local dist = (targetPosition - flatTowerPos).Magnitude
 
-		rayResult = workspace:Raycast(spawnPart.Position, direction * maxTargetDistance, raycastParams)
-	end
-
-	if rayResult then
-		hitPosition = rayResult.Position
+		if dist > maxTargetDistance + 5 then
+			local dir = (targetPosition - flatTowerPos).Unit
+			hitPosition = flatTowerPos + (dir * maxTargetDistance)
+		else
+			hitPosition = targetPosition
+		end
 	else
-		hitPosition = spawnPart.Position + (direction * maxTargetDistance)
+		local isMelee = selectedAttack.Range <= 15
+		maxTargetDistance = isMelee and selectedAttack.Range or 2000
+		local direction = (targetPosition - spawnPart.Position).Unit
+		if direction.Magnitude ~= direction.Magnitude then
+			direction = lookVector.Unit
+		end
+
+		if mobsFolder then
+			local raycastParams = RaycastParams.new()
+			raycastParams.FilterDescendantsInstances = {mobsFolder}
+			raycastParams.FilterType = Enum.RaycastFilterType.Include
+			rayResult = workspace:Raycast(spawnPart.Position, direction * maxTargetDistance, raycastParams)
+		end
+
+		if rayResult then
+			hitPosition = rayResult.Position
+		else
+			local dist = (targetPosition - spawnPart.Position).Magnitude
+			if dist > maxTargetDistance then
+				hitPosition = spawnPart.Position + (direction * maxTargetDistance)
+			else
+				hitPosition = targetPosition
+			end
+		end
 	end
 
 	if selectedAttack.AttackName then
@@ -438,40 +468,83 @@ local function onPossessShoot(player: Player, targetPosition: Vector3, lookVecto
 	mockHRP.CanCollide = false
 	mockHRP.Parent = mockTarget
 
-	local mockHumanoid = Instance.new("Humanoid")
-	mockHumanoid.Parent = mockTarget
-
 	mockTarget.PrimaryPart = mockHRP
+	Instance.new("Humanoid", mockTarget)
+
 	mockTarget.Parent = get_vfx_parent()
 	Debris:AddItem(mockTarget, PROJECTILE_LIFETIME)
+
+	local delayTime = (selectedAttack.MultiDamageDelays and selectedAttack.MultiDamageDelays[1]) or 0
+
+	local gameSpeed = 1
+	local infoFolder = workspace:FindFirstChild("Info")
+	if infoFolder and infoFolder:FindFirstChild("GameSpeed") and infoFolder.GameSpeed:IsA("NumberValue") then
+		gameSpeed = infoFolder.GameSpeed.Value
+	end
 
 	task.spawn(function()
 		local config = towerModel:FindFirstChild("Config")
 		local rangeValue = config and config:FindFirstChild("Range")
 		local originalRange = rangeValue and rangeValue:IsA("NumberValue") and rangeValue.Value or selectedAttack.Range
 
-		if not isMelee and rangeValue and rangeValue:IsA("NumberValue") then
+		local aoeTypeValue = config and config:FindFirstChild("AOEType")
+		local originalAoeType = aoeTypeValue and aoeTypeValue:IsA("StringValue") and aoeTypeValue.Value or ""
+
+		local aoeSizeValue = config and config:FindFirstChild("AOESize")
+		local originalAoeSize = aoeSizeValue and aoeSizeValue:IsA("NumberValue") and aoeSizeValue.Value or 0
+
+		if rangeValue and rangeValue:IsA("NumberValue") then
 			rangeValue.Value = 2000
 		end
 
-		pcall(function()
-			towerFunctionModule.DamageFunction(towerModel, mockTarget)
-		end)
+		if aoeTypeValue and aoeTypeValue:IsA("StringValue") then
+			aoeTypeValue.Value = selectedAttack.AOEType or "Single"
+		end
 
-		if selectedAttack.AOEType == "Single" and rayResult then
-			local enemyModel = rayResult.Instance:FindFirstAncestorOfClass("Model")
-			if enemyModel then
-				local humanoid = enemyModel:FindFirstChild("Humanoid")
-				if humanoid and humanoid:IsA("Humanoid") and humanoid.Health > 0 then
-					humanoid:TakeDamage(selectedAttack.Damage)
+		if aoeSizeValue and aoeSizeValue:IsA("NumberValue") then
+			aoeSizeValue.Value = selectedAttack.AOESize or 0
+		end
+
+		pcall(function()
+			if selectedAttack.AOEType == "Splash" then
+				towerFunctionModule.Splash(towerModel, mockHRP.CFrame, selectedAttack.Damage)
+			elseif selectedAttack.AOEType == "Cone" then
+				towerFunctionModule.ConeAOE(spawnPart, towerModel, selectedAttack.AOESize, selectedAttack.Damage)
+			elseif selectedAttack.AOEType == "AOE" then
+				towerFunctionModule.AOE(towerModel, selectedAttack.Damage)
+			else
+				if rayResult then
+					local enemyModel = rayResult.Instance:FindFirstAncestorOfClass("Model")
+					if enemyModel then
+						local humanoid = enemyModel:FindFirstChild("Humanoid")
+						if humanoid and humanoid:IsA("Humanoid") and humanoid.Health > 0 then
+							local towerType = config and config:FindFirstChild("Type") and config.Type.Value or "Hybrid"
+							local enemyType = enemyModel:FindFirstChild("Type") and enemyModel.Type.Value or ""
+
+							if towerType == "Hybrid" or towerType == enemyType then
+								tag_humanoid(humanoid, player)
+								if towerFunctionModule.TakeDamage then
+									towerFunctionModule.TakeDamage(humanoid, towerModel, selectedAttack.Damage)
+								else
+									humanoid:TakeDamage(selectedAttack.Damage)
+								end
+							end
+						end
+					end
 				end
 			end
-		end
+		end)
 
 		task.wait(1.5)
 
-		if not isMelee and rangeValue and rangeValue:IsA("NumberValue") then
+		if rangeValue and rangeValue:IsA("NumberValue") then
 			rangeValue.Value = originalRange
+		end
+		if aoeTypeValue and aoeTypeValue:IsA("StringValue") then
+			aoeTypeValue.Value = originalAoeType
+		end
+		if aoeSizeValue and aoeSizeValue:IsA("NumberValue") then
+			aoeSizeValue.Value = originalAoeSize
 		end
 	end)
 end
@@ -480,7 +553,6 @@ local function onPlayerRemoving(player: Player): ()
 	unpossessTower(player, player.Character)
 end
 
-------------------//INIT
 possessEvent.OnServerEvent:Connect(processPossessionRequest)
 shootEvent.OnServerEvent:Connect(onPossessShoot)
 Players.PlayerRemoving:Connect(onPlayerRemoving)

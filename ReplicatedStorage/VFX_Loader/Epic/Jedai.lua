@@ -1,58 +1,87 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
 
+local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
+local VFX = ReplicatedStorage.VFX
+local VFX_Helper = require(ReplicatedStorage.Modules.VFX_Helper)
+local GameSpeed = workspace.Info.GameSpeed
+local vfxFolder = workspace.VFX
 
 local module = {}
-local rs = game:GetService("ReplicatedStorage")
-local Effects = rs.VFX
-local vfxFolder = workspace.VFX
-local TS = game:GetService("TweenService")
-local Debris = game:GetService("Debris")
-local VFX = rs.VFX
-local VFX_Helper = require(rs.Modules.VFX_Helper)
-local GameSpeed = game.Workspace.Info.GameSpeed
-module["Jedai Attack"] = function(HRP, target)
-	local speed = GameSpeed.Value
-	local Folder = VFX.Jedai.First
-	VFX_Helper.SoundPlay(HRP,Folder.First)
-	local startCFrame = HRP.CFrame
-	local enemypos = Vector3.new(target.HumanoidRootPart.Position.X,HRP.Position.Y,target.HumanoidRootPart.Position.Z)
-	
-	local trail = Folder:WaitForChild("Trail"):Clone()
-	trail.CFrame = HRP.Parent["Right Arm"].Handle.CFrame * CFrame.Angles(0,math.rad(90),0)
-	trail.Parent = vfxFolder
-	Debris:AddItem(trail,1/speed)
-	local weld = Instance.new("WeldConstraint")
-	weld.Part0 = HRP.Parent["Right Arm"].Handle
-	weld.Part1 = trail
-	weld.Parent = trail
-	task.wait(0.1/speed)
-	UnitSoundEffectLib.playSound(HRP.Parent, 'SaberSwing1')
-	if not HRP or not HRP.Parent then return end
-	HRP.Parent.Attacking.Value = true
-	local starsemit = Folder:WaitForChild("Ground"):Clone()
-	starsemit.Position = HRP.Position + Vector3.new(0,1.55,0)
-	starsemit.Parent = HRP.Parent
-	VFX_Helper.EmitAllParticles(starsemit)
-	Debris:AddItem(starsemit,2/speed)
-	local enemyCFrame = CFrame.new(enemypos) * CFrame.Angles(HRP.CFrame:ToEulerAnglesXYZ())
-	TS:Create(HRP, TweenInfo.new(0.1/speed, Enum.EasingStyle.Linear), {CFrame = enemyCFrame + enemyCFrame.LookVector * -2.5}):Play()
-	task.wait(0.1/speed)
-	local Hit = Folder:WaitForChild("Emit"):Clone()
-	Hit.Position = enemypos 
-	Hit.Parent = vfxFolder
-	Debris:AddItem(Hit,1/speed)
-	task.spawn(function()
-		task.wait(0.1/speed)
-		VFX_Helper.EmitAllParticles(Hit)
 
-	end)
-	if not HRP or not HRP.Parent then return end
-	
-	task.wait(0.54/speed)
-	if not HRP or not HRP.Parent then return end
-	HRP.CFrame = HRP.Parent:WaitForChild("TowerBasePart").CFrame
-	HRP.Parent.Attacking.Value = false
+module["Jedai Attack"] = function(HRP, target)
+	local speed = GameSpeed.Value or 1
+	local Folder = VFX.Jedai.First
+	local characterModel = HRP.Parent
+
+	if not HRP or not characterModel then return end
+
+	local targetRoot = target:FindFirstChild("HumanoidRootPart")
+	if not targetRoot then return end
+
+	local AttackingValue = characterModel:FindFirstChild("Attacking")
+	local enemypos = Vector3.new(targetRoot.Position.X, HRP.Position.Y, targetRoot.Position.Z)
+
+	UnitSoundEffectLib.playSound(characterModel, "SaberSwing1", false)
+
+	local vfxContainer
+	for _, child in Folder:GetChildren() do
+		if not child:IsA("Sound") then
+			vfxContainer = child
+			break
+		end
+	end
+
+	local mainVFX
+	if vfxContainer then
+		mainVFX = VFX_Helper.CloneObject(
+			vfxContainer,
+			HRP.CFrame,
+			characterModel,
+			3 / speed,
+			true
+		)
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = HRP
+		weld.Part1 = mainVFX:IsA("Model") and (mainVFX.PrimaryPart or mainVFX:FindFirstChildWhichIsA("BasePart")) or mainVFX
+		weld.Parent = mainVFX
+
+		VFX_Helper.OnAllParticles(mainVFX)
+	end
+
+	task.wait(0.1 / speed)
+	if not HRP or not characterModel or not targetRoot then return end
+
+	if AttackingValue then AttackingValue.Value = true end
+
+	local enemyCFrame = CFrame.new(enemypos) * CFrame.Angles(HRP.CFrame:ToEulerAnglesXYZ())
+	local targetDashPos = enemyCFrame + enemyCFrame.LookVector * -2.5
+
+	TweenService:Create(HRP, TweenInfo.new(0.1 / speed, Enum.EasingStyle.Linear), {CFrame = targetDashPos}):Play()
+
+	task.wait(0.1 / speed)
+
+	if mainVFX then
+		VFX_Helper.EmitAllParticles(mainVFX)
+	end
+
+	if not HRP or not characterModel then return end
+
+	task.wait(0.54 / speed)
+	if not HRP or not characterModel then return end
+
+	if mainVFX then
+		VFX_Helper.OffAllParticles(mainVFX)
+	end
+
+	local towerBase = characterModel:FindFirstChild("TowerBasePart")
+	if towerBase then 
+		HRP.CFrame = towerBase.CFrame 
+	end
+
+	if AttackingValue then AttackingValue.Value = false end
 end
 
 return module

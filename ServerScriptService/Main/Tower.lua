@@ -68,7 +68,7 @@ end)
 --	local map = workspace.Map:FindFirstChildOfClass("Folder")
 
 --	warn(mode)
-	
+
 --	for i, mob in workspace.Mobs:GetChildren() do
 
 --		local newMobPositionForTower = Vector3.new(mob.HumanoidRootPart.Position.X,newTower.HumanoidRootPart.Position.Y,mob.HumanoidRootPart.Position.Z)
@@ -302,7 +302,7 @@ function tower.Sell(player:Player, model:Model)
 
 			player.PlacedTowers.Value -= 1
 			player.Money.Value += sellPrice --model.Config.Price.Value / 2
-			
+
 			--asdf
 			TowerSpecialisation.clearBuffs(model)
 			model:Destroy()
@@ -336,43 +336,43 @@ local function createplacementbox(pos, unitName, sourcePlayer)
 	p.Orientation = Vector3.new(0,90,-90)
 	p.Shape = Enum.PartType.Cylinder
 	p.Transparency = 1
-	
+
 	p.Parent = workspace.RedZones
-	
+
 	local p2 = Instance.new('Part')
 	p2.Position = Vector3.new(0,1000000,0)
 	p2.Name = unitName
 	p2:SetAttribute('Ignore', true)
-	
-	
+
+
 	local config = Instance.new('Configuration', p2)
 	config.Name = 'Config'
 	local OwnedBy = Instance.new('StringValue', config)
 	OwnedBy.Name = 'Owner'
 	OwnedBy.Value = sourcePlayer.Name
-	
+
 	p2.Parent = workspace.Towers
-	
+
 	PhysicsService:SetPartCollisionGroup(p, "Tower")
 
 	return p,p2
 end
 
-function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:Model, isSpawning:boolean)
+function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:Model, isSpawning:boolean, skipDropAnimation:boolean?, bypassCostCheck:boolean?)
 	local name = value.Name
-	local allowedToSpawn = tower.CheckSpawn(player, value, previous, isSpawning)
+	local allowedToSpawn = tower.CheckSpawn(player, value, previous, isSpawning, bypassCostCheck)
 	local outofBounds = true
-	
+
 	warn('allowed to spawn:')
 	warn(allowedToSpawn)
-	
+
 	for i,v in pairs(workspace.Towers:GetChildren()) do
 		if getMag(v:GetPivot().Position, cframe.Position) < 1 then
 			outofBounds = false
 			break
 		end
 	end
-	
+
 	for i,v in pairs(workspace.RedZones:GetChildren()) do
 		if getMag(v:GetPivot().Position, cframe.Position) < 1 then
 			outofBounds = false
@@ -398,7 +398,7 @@ function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:M
 		local priceMultiplier = 1
 
 		local upgradeStats = UpgradesModule[name]
-		
+
 		local TowerQuantity = 0
 		for _, t in game.Workspace.Towers:GetChildren() do
 			if t.Config.Owner.Value == player.Name then
@@ -407,7 +407,7 @@ function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:M
 				end
 			end
 		end
-		
+
 		-- or table.find({"Waders Will"},value:GetAttribute("Trait"))
 		local placeLimit = if (table.find({"Cosmic Crusader"},value:GetAttribute("Trait")) or table.find({"Waders Will"},value:GetAttribute("Trait"))) and not info.Versus.Value then 1 else upgradeStats["Place Limit"]
 		if TowerQuantity >= placeLimit then
@@ -417,7 +417,7 @@ function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:M
 
 		if upgradeStats then
 			local tempBox, temp2 = createplacementbox(cframe.Position, name, player)
-			
+
 			if Traits.Traits[value:GetAttribute("Trait")] and not info.Versus.Value then
 				if Traits.Traits[value:GetAttribute("Trait")]["Money"] then
 					priceMultiplier = (1-(Traits.Traits[value:GetAttribute("Trait")]["Money"]/100))
@@ -431,10 +431,10 @@ function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:M
 			end
 
 			newTower = GetUnitModel[name]:Clone()
-			
+
 			if workspace.Info.Versus.Value then
 				local plrTeam = player.Team.Name
-				
+
 				if plrTeam == 'Red' or plrTeam == 'Blue' then
 					newTower:SetAttribute('Team', plrTeam)
 				else
@@ -442,7 +442,7 @@ function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:M
 					return 'Please wait for a team'
 				end
 			end
-			
+
 			local cfg = Instance.new("Configuration")
 			cfg.Name = "Config"
 			cfg.Parent = newTower
@@ -461,7 +461,7 @@ function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:M
 			val.Parent = newTower.Config
 			local Shiny = Instance.new("BoolValue")
 			Shiny.Value = value:GetAttribute("Shiny")
-			
+
 			if Shiny.Value and not info.Versus.Value then
 				print("Unit is shiny")
 				pcall(function()
@@ -472,7 +472,7 @@ function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:M
 					Shine.Parent = mainPart
 				end)
 			end
-			
+
 			Shiny.Name = "Shiny"
 			Shiny.Parent = newTower.Config
 			local val = Instance.new("IntValue")
@@ -665,7 +665,7 @@ function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:M
 				local Value = ((newTower.Config[stat].Value * Multiplier) * 10) / 10
 				newTower.Config[stat].Value = FormatStats.Format(Value)
 			end
-			
+
 			Traits.AddVisualAura(newTower, value:GetAttribute("Trait"))
 
 			if not newTower.Config:FindFirstChild("CanAttack") then
@@ -690,13 +690,17 @@ function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:M
 			Sfx:play()
 
 			game.Debris:AddItem(Sfx,Sfx.TimeLength)
-			player.Money.Value -= towerPrice
-			
+			if not bypassCostCheck then
+				player.Money.Value -= towerPrice
+			end
+
 			--PROGRESS QUEST
 			Quests.UpdateProgressAll(player, "PlaceUnits", 1)
 
 			task.spawn(function()
-				PodDeployer.deployPod(cframe.Position, player, damage)
+				if not skipDropAnimation then
+					PodDeployer.deployPod(cframe.Position, player, damage)
+				end
 				tempBox.Name = newTower.Name
 				newTower.Parent = workspace.Towers
 				tempBox:Destroy()
@@ -706,7 +710,7 @@ function tower.Spawn(player:Player, value:StringValue, cframe:CFrame, previous:M
 				end
 			end)
 
-			
+
 
 			return newTower
 		else
@@ -724,7 +728,7 @@ local UpgradeStats = ReplicatedStorage.Functions.UpgradeStats
 UpgradeStats.OnServerInvoke = tower.Upgrade
 spawnTowerFunction.OnServerInvoke = tower.Spawn
 
-function tower.CheckSpawn(player:Player, value:StringValue, previous:Model, isSpawning:boolean)
+function tower.CheckSpawn(player:Player, value:StringValue, previous:Model, isSpawning:boolean, bypassCostCheck:boolean?)
 	local name = value.Name
 	local towerExists = GetUnitModel[name]
 
@@ -743,6 +747,10 @@ function tower.CheckSpawn(player:Player, value:StringValue, previous:Model, isSp
 	end
 
 	local price = UpgradesModule[name]["Upgrades"][1].Price * priceMultiplier
+	if bypassCostCheck and towerExists then
+		return true
+	end
+
 	if towerExists then
 		if price <= player.Money.Value then
 			return true	
@@ -857,7 +865,7 @@ functions.Upgrade.OnServerInvoke = function (player : Player,tower : Model)
 					Config[stat].Value = UnitStats[Config.Upgrades.Value][stat]
 				end
 			end
-			
+
 			if Traits.Traits[Config.Trait.Value] then
 				for _, stat in {"Damage","Range","Cooldown"} do
 					local traitMultiplier = 1
@@ -868,7 +876,7 @@ functions.Upgrade.OnServerInvoke = function (player : Player,tower : Model)
 					Config[stat].Value = FormatStats.Format(Value)
 				end
 			end
-			
+
 			for _, stat in {"Damage","Range","Cooldown"} do
 				local Multiplier = 1
 				if Config.Shiny.Value then
@@ -877,7 +885,7 @@ functions.Upgrade.OnServerInvoke = function (player : Player,tower : Model)
 				local Value = (Config[stat].Value * Multiplier * 10) / 10
 				Config[stat].Value = FormatStats.Format(Value)
 			end
-			
+
 			--if UnitStats[Config.Upgrades.Value+1] and UnitStats[Config.Upgrades.Value+1].AOESize then -- x_x6n: made it so that AOE val gets updated on upgrade
 			--	Config.AOESize.Value = UnitStats[Config.Upgrades.Value].AOESize
 			--end
@@ -893,7 +901,7 @@ functions.Upgrade.OnServerInvoke = function (player : Player,tower : Model)
 
 			Config.Worth.Value += price
 			player.Money.Value -= price
-			
+
 		else
 			return "Not Enough Money"
 		end
@@ -906,4 +914,3 @@ end
 requestAbilityFunction.OnServerInvoke = tower.RequestAbility
 
 return tower 
-

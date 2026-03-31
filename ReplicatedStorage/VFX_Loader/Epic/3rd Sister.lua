@@ -1,65 +1,59 @@
+-- SERVICES
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
-
-local module = {}
-local rs = game:GetService("ReplicatedStorage")
-local Effects = rs.VFX
-local vfxFolder = workspace.VFX
-local TS = game:GetService("TweenService")
+local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
-local VFX = rs.VFX
-local VFX_Helper = require(rs.Modules.VFX_Helper)
-local tweenService = game:GetService("TweenService")
-local LightningSparks = require(rs.VFXModules.LightningBolt.LightningSparks)
-local LightningModule = require(rs.VFXModules.LightningModule)
 
+-- CONSTANTS
+local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
+local VFX = ReplicatedStorage.VFX
 local GameSpeed = workspace.Info.GameSpeed
 
+-- VARIABLES
+local module = {}
+
+-- FUNCTIONS
 local function getMag(pos1, pos2)
 	return (pos1 - pos2).Magnitude
 end
 
 local function tween(obj, length, details)
-	tweenService:Create(obj, TweenInfo.new(length, Enum.EasingStyle.Linear), details):Play()
+	TweenService:Create(obj, TweenInfo.new(length, Enum.EasingStyle.Linear), details):Play()
 end
 
-
 module["Saber Slash"] = function(HRP, target)
+	local targetRoot = target:FindFirstChild("HumanoidRootPart")
+	if not targetRoot then return end
+
 	local Folder = VFX["3rd Sister"].First
-	local speed = GameSpeed.Value
-	local enemypos = Vector3.new(target.HumanoidRootPart.Position.X,HRP.Position.Y,target.HumanoidRootPart.Position.Z)
-	local saber = Folder["Saber Slash"]:Clone()
+	local saber = Folder["First"]:Clone()
+
 	saber.CFrame = HRP.CFrame
 	saber.Parent = HRP.Parent
-	local Attachment = saber.Attachment
-	local tableEmit = {}
 
-	local speed = 16
-	local enemyPos = target:GetPivot().Position
+	local speed = 16 * (GameSpeed.Value or 1)
+	local enemyPos = targetRoot.Position
 	local timeToTravel = getMag(HRP.Position, enemyPos) / speed
 
 	tween(saber, timeToTravel, {Position = enemyPos})
-	task.delay(timeToTravel, function()
-		saber:Destroy()
-	end)
-	--Debris:AddItem(saber, timeToTravel)
+
+	Debris:AddItem(saber, timeToTravel + 0.5) 
 
 	UnitSoundEffectLib.playSound(HRP.Parent, 'SaberSwing')
 
-	for i,v in Attachment:GetChildren() do
-		table.insert(tableEmit, v)
+	for _, child in saber:GetChildren() do
+		if child:IsA("Attachment") then
+			for _, particle in child:GetChildren() do
+				if particle:IsA("ParticleEmitter") then
+					particle.Enabled = true
+
+					task.delay(0.1, function()
+						particle.Enabled = false
+					end)
+				end
+			end
+		end
 	end
-
-	for i,v in tableEmit do
-		v.Enabled = true
-		task.wait(0.1 / speed, function()
-			v.Enabled = false
-		end)
-	end
-
-
-
-
 end
 
+-- INIT
 return module

@@ -1,27 +1,38 @@
+-- SERVICES
 local tweenService = game:GetService('TweenService')
 
-local function tween(obj, length, details)
-	if obj and length and details then
-		tweenService:Create(obj,TweenInfo.new(length),details):Play()
-	end
-end
- 
+-- CONSTANTS
+local MapFolder = workspace.Map:GetChildren()[1] :: Folder or workspace
+
+-- VARIABLES
 local plane = script.Parent
 local team = plane:GetAttribute('Team')
-
-local HRP = plane.HumanoidRootPart
+local HRP = plane:WaitForChild("HumanoidRootPart")
+local Humanoid = plane:WaitForChild("Humanoid")
 local extraStepDistance = 1
 
+local waypoints, cpoints, Mobs, End, endPos
+
+local BaseWalkSpeed = Humanoid.WalkSpeed 
+
+-- FUNCTIONS
 local function round(n)
 	return math.floor(n + 0.5)
 end
 
+local function UpdateSpeed()
+	local currentGameSpeed = workspace.Info.GameSpeed.Value
+	Humanoid.WalkSpeed = BaseWalkSpeed * currentGameSpeed
+end
 
-local part = HRP
+local function MoveNPC(Point, Character)	
+	repeat
+		task.wait()
+		Character.Humanoid:MoveTo(Point)
+	until (HRP.Position - Vector3.new(Point.X, HRP.Position.Y, Point.Z) ).magnitude <= 1 -- Adjust this for planes
+end
 
-local waypoints, cpoints, Mobs, End, endPos
-local MapFolder = workspace.Map:GetChildren()[1] :: Folder or workspace
-
+-- INIT
 if team then
 	Mobs = workspace[team .. 'Mobs']
 	waypoints = workspace[team .. 'Waypoints']
@@ -34,15 +45,11 @@ else
 	Mobs = workspace['Mobs']
 end
 
-function MoveNPC(Point, Character)	
-	repeat
-		task.wait()
-		Character.Humanoid:MoveTo(Point)
-	until (HRP.Position - Vector3.new(Point.X, HRP.Position.Y, Point.Z) ).magnitude <= 1 -- Adjust this for planes
-end
+UpdateSpeed()
+
+workspace.Info.GameSpeed.Changed:Connect(UpdateSpeed)
 
 local count = #waypoints:GetChildren()
-
 
 task.wait(0.5)
 
@@ -53,13 +60,12 @@ for waypoint = 1, count do
 	local direction = (targetPos - HRP.Position).unit
 	local newDestination = targetPos + direction * extraStepDistance
 	newDestination = Vector3.new(newDestination.X, HRP.Position.Y, newDestination.Z)
-	
+
 	plane.AlignOrientation.CFrame = CFrame.lookAt(HRP.Position, newDestination)
 	plane.AlignOrientation.Enabled = true
-	
+
 	MoveNPC(newDestination, plane)
 end
-
 
 local targetPos = endPos
 
@@ -68,4 +74,3 @@ plane.AlignOrientation.Enabled = true
 
 MoveNPC(targetPos, plane)
 script.Parent:Destroy()
-

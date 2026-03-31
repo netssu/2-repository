@@ -52,6 +52,8 @@ local died = false
 --local ramping = 1
 local healthMultiplier = 1
 local skipvotes = 0
+local BASIC_MOB_SPAWN_DELAY = 1
+local MIN_MOB_SPAWN_DELAY = 1
 
 
 Variables.mobLimit = game.Workspace.Info.MobLimit.Value
@@ -88,7 +90,7 @@ local function forceTeleportPlayer(v)
 			local targetCFrame = spawnCFrame.CFrame * CFrame.new(Vector3.new(0,5,0))
 			v.Character:PivotTo(targetCFrame)
 		end)
-		
+
 		task.wait(0.1)
 	until s
 end
@@ -96,23 +98,23 @@ end
 function round.StartGame(host)
 	if info.GameRunning.Value == true then return end
 
-	
+
 
 	Variables.map = MapLoader.LoadMap()
-		
+
 	if info.Versus.Value or info.Competitive.Value then
 		Parties.generateTeams()
-		
+
 		Players.PlayerAdded:Connect(function(v)
 			Parties.putIntoTeam(v)
 			forceTeleportPlayer(v)
 		end)
-		
+
 		if not Variables.map then error('UH OH, map not loaded into variable') return end
-		
+
 		local redSpawnCFrame = Variables.map:FindFirstChild('RedSpawnLocation')
 		local blueSpawnCFrame = Variables.map:FindFirstChild('BlueSpawnLocation')
-			
+
 		if redSpawnCFrame and blueSpawnCFrame then		
 			for i,v:Player in pairs(Players:GetChildren()) do
 				task.spawn(forceTeleportPlayer, v)
@@ -122,7 +124,7 @@ function round.StartGame(host)
 				error('There was an issue with loading the map!')
 			end)
 		end
-		
+
 	else
 		local spawnCFrame = Variables.map and Variables.map:FindFirstChildOfClass('SpawnLocation')
 
@@ -136,13 +138,13 @@ function round.StartGame(host)
 			end)
 		end
 	end
-	
-	
-	
-	
+
+
+
+
 
 	info.GameRunning.Value = true
-	
+
 	task.spawn(function()
 		repeat task.wait() until host:FindFirstChild("DataLoaded")
 		local Settings = host:FindFirstChild("Settings")
@@ -153,7 +155,7 @@ function round.StartGame(host)
 				local speedMultiplier= 3
 				workspace.Info.GameSpeed.Value = speedMultiplier
 				ReplicatedStorage.Events.ChangeSpeed:FireAllClients(`{speedMultiplier}x`, host)
-				script:SetAttribute('MobSpawnDelay', 0.75/(speedMultiplier))
+				script:SetAttribute('MobSpawnDelay', math.max(MIN_MOB_SPAWN_DELAY, BASIC_MOB_SPAWN_DELAY / speedMultiplier))
 				for _, player in ipairs(Players:GetPlayers()) do
 					if player:FindFirstChild('Speed') then
 						player.Speed.Value = speedMultiplier
@@ -165,14 +167,14 @@ function round.StartGame(host)
 			print("no settings")
 		end
 	end)
-	
+
 	task.wait(4)
 
 	Events.Client.StartGUI:FireAllClients(true)
 
 	task.wait(6.5)
 
-    Variables.infinity = info.Infinity.Value
+	Variables.infinity = info.Infinity.Value
 	Variables.raid = info.Raid.Value
 	Variables.challenge = info.ChallengeNumber.Value
 	local challengeRewardNumber = info.ChallengRewardeNumber.Value
@@ -227,8 +229,8 @@ function round.StartGame(host)
 			Variables.RoundStats = require(script.Gamemodes.Story)
 		end
 	end
-	
-	
+
+
 	if Variables.map ~= nil then
 		if info.Versus.Value then
 			Variables.ActStats = Variables.RoundStats[info.WorldString.Value]['MainAct']
@@ -245,15 +247,15 @@ function round.StartGame(host)
 		if Event.Value then
 			Variables.ActStats = Variables.RoundStats[Variables.map.Name]["EXTREME_BOSS"]
 		end
-		
+
 		if Variables.challenge >= 7 then
 			Variables.ActStats = ChallengeModeTable[Variables.challenge](true)
 		end	
 	end
-	
+
 	if Variables.ActStats then
 		local bosses = nil
-		
+
 		if Variables.challenge == 7 then
 			bosses = {
 				"boss1",  -- miniboss
@@ -278,7 +280,7 @@ function round.StartGame(host)
 			}
 			warn(bosses)
 		end
-		
+
 		Events.Client.VoteStartGame:FireAllClients(nil, nil, nil, true)
 		task.wait(0.1)
 		local startTimer = 0
@@ -313,20 +315,20 @@ function round.StartGame(host)
 			local challengeData = ChallengeModule.Data[Variables.challenge]
 			if challengeData and challengeData.MobStats ~= nil then
 				script:SetAttribute('SpeedMultiplier', script:GetAttribute('SpeedMultiplier') + (challengeData.MobStats.Speed / 100))
-				
+
 				healthMultiplier += (challengeData.MobStats.Health / 100)
 			end
-			
-		if Variables.challenge == 9 then
-			warn("1HP")
-			
-		end
-			
-		end
-		
-		
 
-		
+			if Variables.challenge == 9 then
+				warn("1HP")
+
+			end
+
+		end
+
+
+
+
 		require(script.Libs.MainGameLoopLib)
 		-- Game Ended, Load Rewards
 		require(script.Libs.RewardsLib)
@@ -337,7 +339,7 @@ function round.StartGame(host)
 				if tutorialWin and  not tutorialWin.Value then
 					tutorialWin.Value = true
 				end
-				
+
 				info.Victory.Changed:Connect(function()
 					if info.Victory.Value and Event.Value and player:FindFirstChild("EventAttempts").Value >= 500 then
 						player.EventAttempts.Value = 0
@@ -347,8 +349,8 @@ function round.StartGame(host)
 					end
 				end)
 
-				
-				
+
+
 				pcall(function()
 					if XPHandler then
 						XPHandler.UpdateQuests( player , 'Clear Acts' )
@@ -364,8 +366,8 @@ function round.StartGame(host)
 			info.Victory.Value = true
 			info.GameOver.Value = true
 			info.Message.Value = "VICTORY"
-			
-			
+
+
 
 			local s,e = pcall(function()
 
@@ -387,11 +389,11 @@ function round.StartGame(host)
 			handleRewards()
 		else
 			print('We lost :(')
-			
+
 			for i,v in Players:GetChildren() do
 				v.TutorialWin.Value = true
 			end
-			
+
 		end
 	else
 		assert("MAP VARIABLE IS NIL")

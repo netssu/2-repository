@@ -1,13 +1,18 @@
-local module = {}
-
+-- SERVICES
 local rs = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 
+-- CONSTANTS
+
+-- VARIABLES
 local VFX = rs:WaitForChild("VFX")
-local vfxFolder = workspace:WaitForChild("VFX")
+local vfxFolder = workspace:FindFirstChild("VFX") or workspace
 local VFX_Helper = require(rs.Modules:WaitForChild("VFX_Helper"))
-local EmitModule = require(rs.Modules:WaitForChild("EmitModule"))
+local UnitSoundEffectLib = require(rs.VFXModules:WaitForChild("UnitSoundEffectLib"))
 local GameSpeed = workspace.Info:WaitForChild("GameSpeed")
+
+-- FUNCTIONS
+local module = {}
 
 local function getEnemyPos(HRP, target)
 	if target and target:FindFirstChild("HumanoidRootPart") then
@@ -20,6 +25,7 @@ local function getEnemyPos(HRP, target)
 end
 
 local function getVisual(folder, visualName)
+	if not folder then return nil end
 	local obj = folder:FindFirstChild(visualName)
 	if obj and (obj:IsA("BasePart") or obj:IsA("Model")) then
 		return obj
@@ -34,29 +40,20 @@ local function getVisual(folder, visualName)
 	return nil
 end
 
-local function setVFXCFrame(vfx, cf)
-	if vfx:IsA("Model") then
-		vfx:PivotTo(cf)
-	else
-		vfx.CFrame = cf
-	end
-end
-
 local function playSimpleSkill(HRP, target, folderName, visualName, getCFrame, lifeTime, attackTime, offTime)
-	if not HRP or not HRP.Parent then
-		return
-	end
+	if not target or not target:FindFirstChild("HumanoidRootPart") then return end
+	if not HRP or not HRP.Parent then return end
 
 	local unit = HRP.Parent
 	local speed = GameSpeed.Value
-	local folder = VFX:WaitForChild("Palpotin"):WaitForChild(folderName)
+	local folder = VFX:WaitForChild("Palpotin"):FindFirstChild(folderName)
+
+	if not folder then return end
+
 	local sound = folder:FindFirstChild("Sound")
 	local template = getVisual(folder, visualName)
 
-	if not template then
-		warn(("VFX '%s' não encontrado em Palpotin/%s"):format(visualName, folderName))
-		return
-	end
+	if not template then return end
 
 	if sound and sound:IsA("Sound") then
 		VFX_Helper.SoundPlay(HRP, sound)
@@ -66,11 +63,10 @@ local function playSimpleSkill(HRP, target, folderName, visualName, getCFrame, l
 		unit.Attacking.Value = true
 	end
 
-	local vfx = template:Clone()
-	setVFXCFrame(vfx, getCFrame(HRP, target))
-	vfx.Parent = vfxFolder
+	local cframePos = getCFrame(HRP, target)
+	local lifeT = (lifeTime or 3) / speed
 
-	Debris:AddItem(vfx, (lifeTime or 3) / speed)
+	local vfx = VFX_Helper.CloneObject(template, cframePos, vfxFolder, lifeT, true)
 
 	if unit:FindFirstChild("Destroying") then
 		unit.Destroying:Once(function()
@@ -80,8 +76,6 @@ local function playSimpleSkill(HRP, target, folderName, visualName, getCFrame, l
 		end)
 	end
 
-	EmitModule.emit(vfx)
-
 	task.delay((attackTime or 0.5) / speed, function()
 		if unit and unit.Parent and unit:FindFirstChild("Attacking") then
 			unit.Attacking.Value = false
@@ -90,10 +84,14 @@ local function playSimpleSkill(HRP, target, folderName, visualName, getCFrame, l
 end
 
 module["Palpotin light"] = function(HRP, target)
+	if not HRP or not HRP.Parent then return end
+
+	UnitSoundEffectLib.playSound(HRP.Parent, "Thunder", false)
+
 	playSimpleSkill(
 		HRP,
 		target,
-		"Folder",
+		"First",
 		"First",
 		function(HRP, target)
 			local enemyPos = getEnemyPos(HRP, target)
@@ -104,9 +102,29 @@ module["Palpotin light"] = function(HRP, target)
 		0.45,
 		0.2
 	)
+
+	if not target or not target:FindFirstChild("HumanoidRootPart") then return end
+
+	local speed = GameSpeed.Value
+	local impactFolder = VFX:WaitForChild("Palpotin"):FindFirstChild("FirstImpact")
+
+	if impactFolder then
+		local impactTemplate = getVisual(impactFolder, "FirstImpact")
+		if impactTemplate then
+			local enemyPos = getEnemyPos(HRP, target)
+			local cframePos = CFrame.new(enemyPos)
+			local lifeT = 2 / speed
+
+			VFX_Helper.CloneObject(impactTemplate, cframePos, vfxFolder, lifeT, true)
+		end
+	end
 end
 
 module["Doom Bolt"] = function(HRP, target)
+	if not HRP or not HRP.Parent then return end
+
+	UnitSoundEffectLib.playSound(HRP.Parent, "Flamethrower", false)
+
 	playSimpleSkill(
 		HRP,
 		target,
@@ -114,7 +132,7 @@ module["Doom Bolt"] = function(HRP, target)
 		"Second",
 		function(HRP, target)
 			local enemyPos = getEnemyPos(HRP, target)
-			return CFrame.new(enemyPos + Vector3.new(0, 0, 0))
+			return CFrame.new(enemyPos)
 		end,
 		3,
 		0.55,
@@ -126,11 +144,11 @@ module["Emperor Rage"] = function(HRP, target)
 	playSimpleSkill(
 		HRP,
 		target,
-		"Third",
+		"Thrid", 
 		"Third",
 		function(HRP, target)
 			local enemyPos = getEnemyPos(HRP, target)
-			return CFrame.new(enemyPos + Vector3.new(0, 0, 0))
+			return CFrame.new(enemyPos)
 		end,
 		3.5,
 		0.8,
@@ -138,4 +156,5 @@ module["Emperor Rage"] = function(HRP, target)
 	)
 end
 
+-- INIT
 return module

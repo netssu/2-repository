@@ -26,17 +26,8 @@ local function connect(p0, p1, c0)
 	return weld
 end
 
-local function emit(particle: ParticleEmitter)
-	local delayTime = particle:GetAttribute("DelayTime") or 0
-	local emitCount = particle:GetAttribute("EmitCount") or 10
-
-	if delayTime > 0 then
-		task.delay(delayTime, function()
-			particle:Emit(emitCount)
-		end)
-	else
-		particle:Emit(emitCount)
-	end
+local function emitParticles(container)
+	VFX_Helper.EmitAllParticles(container)
 end
 
 module["Rebound Bullets"] = function(HRP: BasePart, target: Model)
@@ -63,7 +54,7 @@ module["Force Slam"] = function(HRP: BasePart, target: Model)
 	if target then targetCF = target.HumanoidRootPart.CFrame end
 	local Mob = if workspace.Info.TestingMode.Value then rs.Enemies.TestMap:FindFirstChildOfClass("Model"):Clone() else nil
 	if not workspace.Info.TestingMode.Value then
-		local folders  = StoryModeStats.Maps
+		local folders = StoryModeStats.Maps
 		for _, folder in folders do
 			for i, mob in rs.Enemies[folder]:GetChildren() do
 				if mob.Name == MobName then
@@ -81,9 +72,9 @@ module["Force Slam"] = function(HRP: BasePart, target: Model)
 	Mob.HumanoidRootPart.Anchored = true
 	local humanoid = Mob:FindFirstChildOfClass("Humanoid")
 	local animation = Folder:WaitForChild("Animation")
-	if humanoid  and animation then
+	if humanoid and animation then
 		local animTrack = humanoid:LoadAnimation(animation)
-		animTrack:Play() 
+		animTrack:Play()
 	end
 
 	local forceChoke = anikinFolder["Force Choke"]:Clone()
@@ -140,21 +131,18 @@ module["Sniper Boom"] = function(HRP: BasePart, target: Model)
 
 	if not HRP or not HRP.Parent then return end
 	HRP.Parent.Attacking.Value = true
-	UnitSoundEffectLib.playSound(HRP.Parent, 'Sniper' .. tostring(math.random91,3))
+	UnitSoundEffectLib.playSound(HRP.Parent, 'Sniper' .. tostring(math.random(1,3)))
 
 	local sniper = Folder["Sniper Boom"]:Clone()
 	sniper.CFrame = HRP.CFrame * CFrame.new(0,0,-.5)
 	sniper.Parent = vfxFolder
 
-	for _, particle in sniper:GetDescendants() do
-		if not particle:IsA("ParticleEmitter") then continue end
-		emit(particle)
-	end
+	emitParticles(sniper)
 
 	Debris:AddItem(sniper, 2)
 
 	task.wait(.2 / speed)
-	
+
 	UnitSoundEffectLib.playSound(HRP.Parent, 'Explosion')
 
 	if not HRP or not HRP.Parent then return end
@@ -196,7 +184,7 @@ module["Force Reckoning"] = function(HRP, target)
 	local targetPosition = (HRP.CFrame * CFrame.new(0, 0, -Range)).Position
 
 	local starsemit = Folder:WaitForChild("Electrigemit"):Clone()
-	starsemit.CFrame = HRP.CFrame 
+	starsemit.CFrame = HRP.CFrame
 	starsemit.Parent = HRP.Parent
 	VFX_Helper.OnAllParticles(starsemit)
 	Debris:AddItem(starsemit,3/speed)

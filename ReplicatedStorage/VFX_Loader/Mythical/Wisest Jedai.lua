@@ -1,135 +1,227 @@
+-- SERVICES
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
-
-local module = {}
-local rs = game:GetService("ReplicatedStorage")
-local Effects = rs.VFX
-local vfxFolder = workspace.VFX
-local TS = game:GetService("TweenService")
+local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
-local VFX = rs.VFX
-local VFX_Helper = require(rs.Modules.VFX_Helper)
+
+-- CONSTANTS
+
+-- VARIABLES
+local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
+local VFX = ReplicatedStorage.VFX
+local VFX_Helper = require(ReplicatedStorage.Modules.VFX_Helper)
+local RocksModule = require(ReplicatedStorage.Modules.RocksModule)
 local GameSpeed = workspace.Info.GameSpeed
-local RocksModule = require(rs.Modules.RocksModule)
+local vfxFolder = workspace:FindFirstChild("VFX") or workspace
+local wisestJediVFX = VFX:FindFirstChild("Wisest_Jedi")
 
+-- FUNCTIONS
+local module = {}
 
-module["Wisest Jedai first attack"] = function(HRP, target)
-	local Folder = VFX.Wisest_Jedi.First
-	local speed = GameSpeed.Value
-	VFX_Helper.SoundPlay(HRP,Folder.First)
-	local enemypos = Vector3.new(target.HumanoidRootPart.Position.X,HRP.Position.Y,target.HumanoidRootPart.Position.Z)
-	local Teleport = Folder:WaitForChild("Startemit"):Clone()
-	Teleport.Position = HRP.Parent:WaitForChild("TowerBasePart").Position + Vector3.new(0,-0.5,0)
-	Teleport.Parent = HRP.Parent
-	Debris:AddItem(Teleport,2/speed)
-	
-	local trail = Folder:WaitForChild("Trail"):Clone()
-	trail.CFrame = HRP.Parent["Right Arm"].O.CFrame * CFrame.Angles(0,math.rad(90),0)
-	trail.Parent = vfxFolder
-	Debris:AddItem(trail,1/speed)
+local function connect(p0, p1, c0)
 	local weld = Instance.new("WeldConstraint")
-	weld.Part0 = HRP.Parent["Right Arm"].O
-	weld.Part1 = trail
-	weld.Parent = trail
-	task.wait(0.08/speed)
-	HRP.Parent.Attacking.Value = true
-
-	if not HRP or not HRP.Parent then return end
-	local enemyCFrame = CFrame.new(enemypos) * CFrame.Angles(HRP.CFrame:ToEulerAnglesXYZ())
-	TS:Create(HRP, TweenInfo.new(0.05/speed, Enum.EasingStyle.Linear), {CFrame = enemyCFrame + enemyCFrame.LookVector * -0.5}):Play()
-	VFX_Helper.EmitAllParticles(Teleport)
-	UnitSoundEffectLib.playSound(HRP.Parent, 'SaberSwing' .. tostring(math.random(1,2)))
-	task.wait(0.05/speed)
-	local Hit = Folder:WaitForChild("Emit"):Clone()
-	Hit.Position = enemypos + Vector3.new(0,-1,0)
-	Hit.Parent = vfxFolder
-	Debris:AddItem(Hit,3/speed)
-	
-	task.spawn(function()
-		task.wait(0.05/speed)
-		VFX_Helper.EmitAllParticles(Hit)
-	end)
-	if not HRP or not HRP.Parent then return end
-	task.wait(0.6/speed)
-	TS:Create(Hit.PointLight, TweenInfo.new(0.7/speed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Brightness = 0}):Play()
-	if not HRP or not HRP.Parent then return end
-	HRP.CFrame = HRP.Parent:WaitForChild("TowerBasePart").CFrame
-	HRP.Parent.Attacking.Value = false
+	weld.Part0 = p0
+	weld.Part1 = p1
+	weld.Parent = p1
+	return weld
 end
 
+local function getStageEffect(folder, effectName)
+	if not folder then return nil end
+	return folder:FindFirstChild(effectName)
+end
+
+local function setEffectCFrame(effect, cf)
+	if not effect or not cf then return effect end
+	if effect:IsA("Model") then
+		effect:PivotTo(cf)
+	elseif effect:IsA("BasePart") then
+		effect.CFrame = cf
+	end
+	return effect
+end
+
+local function emitParticles(container)
+	VFX_Helper.EmitAllParticles(container)
+end
+
+module["Wisest Jedai first attack"] = function(HRP, target)
+	if not target or not target:FindFirstChild("HumanoidRootPart") then return end
+	if not HRP or not HRP.Parent then return end
+
+	local speed = GameSpeed.Value
+	local Folder = wisestJediVFX:FindFirstChild("First")
+	local characterModel = HRP.Parent
+	local enemypos = Vector3.new(target.HumanoidRootPart.Position.X, HRP.Position.Y, target.HumanoidRootPart.Position.Z)
+
+	local firstEffect = getStageEffect(Folder, "First")
+	local mainVFX
+
+	if firstEffect then
+		mainVFX = firstEffect:Clone()
+		mainVFX = setEffectCFrame(mainVFX, HRP.CFrame)
+		mainVFX.Parent = characterModel
+		Debris:AddItem(mainVFX, 3 / speed)
+
+		connect(HRP, mainVFX:IsA("Model") and (mainVFX.PrimaryPart or mainVFX:FindFirstChildWhichIsA("BasePart")) or mainVFX, CFrame.new())
+
+		for _, obj in mainVFX:GetDescendants() do
+			if obj:IsA("ParticleEmitter") and obj.Parent and string.find(string.lower(obj.Parent.Name), "fastwind") then
+				obj.Enabled = true
+				local emitCount = obj:GetAttribute("EmitCount") or 10
+				obj:Emit(emitCount)
+			end
+		end
+	end
+
+	task.wait(0.08 / speed)
+	if not HRP or not characterModel then return end
+
+	if characterModel:FindFirstChild("Attacking") then characterModel.Attacking.Value = true end
+
+	UnitSoundEffectLib.playSound(characterModel, "SaberSwing" .. tostring(math.random(1, 2)), false)
+
+	local enemyCFrame = CFrame.new(enemypos) * CFrame.Angles(HRP.CFrame:ToEulerAnglesXYZ())
+	local targetDashPos = enemyCFrame + enemyCFrame.LookVector * -0.5
+
+	TweenService:Create(HRP, TweenInfo.new(0.05 / speed, Enum.EasingStyle.Linear), {CFrame = targetDashPos}):Play()
+
+	task.wait(0.05 / speed)
+
+	if mainVFX then
+		for _, obj in mainVFX:GetDescendants() do
+			if obj:IsA("ParticleEmitter") and obj.Parent and string.find(string.lower(obj.Parent.Name), "shock") then
+				local emitCount = obj:GetAttribute("EmitCount") or 30
+				obj:Emit(emitCount)
+			end
+		end
+	end
+
+	task.wait(0.6 / speed)
+	if not HRP or not characterModel then return end
+
+	if mainVFX then
+		VFX_Helper.OffAllParticles(mainVFX)
+	end
+
+	local towerBase = characterModel:FindFirstChild("TowerBasePart")
+	if towerBase then
+		HRP.CFrame = towerBase.CFrame
+	end
+
+	if characterModel:FindFirstChild("Attacking") then characterModel.Attacking.Value = false end
+end
 
 module["Stone Throw"] = function(HRP, target)
-	local Folder = VFX.Wisest_Jedi.Second
-	local speed = GameSpeed.Value
-
-	local startCFrame = HRP.CFrame
-	local enemypos = Vector3.new(target.HumanoidRootPart.Position.X, HRP.Position.Y, target.HumanoidRootPart.Position.Z)
-	VFX_Helper.SoundPlay(HRP,Folder.Seconddd)
-	task.wait(0.12/speed)
+	if not target or not target:FindFirstChild("HumanoidRootPart") then return end
 	if not HRP or not HRP.Parent then return end
-	HRP.Parent.Attacking.Value = true
-	local rockemit = Folder:WaitForChild("Rockemit"):Clone()
-	rockemit.CFrame = startCFrame * CFrame.new(0, -0.7, -2)  * CFrame.Angles(math.rad(90),0,0)
-	rockemit.Parent = vfxFolder
-	Debris:AddItem(rockemit, 2/speed)
-	UnitSoundEffectLib.playSound(HRP.Parent, 'Force1')
-	local rock = Folder:WaitForChild("Rock"):Clone()
-	rock.CFrame = startCFrame * CFrame.new(0, -5, -2) 
-	rock.Parent = vfxFolder
-	Debris:AddItem(rock, 1.5/speed)
-	local connection = HRP.Parent.Destroying:Once(function()
-		rock:Destroy()
-	end)
-	local rockUpCFrame = rock.CFrame * CFrame.new(0, 10, 0)
-	local tweenUp = TS:Create(rock, TweenInfo.new(1/speed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = rockUpCFrame})
-	VFX_Helper.EmitAllParticles(rockemit)
-	tweenUp:Play()
-	task.wait(1.2/speed)
-	local enemyCFrame = CFrame.new(enemypos) * CFrame.Angles(HRP.CFrame:ToEulerAnglesXYZ())
-	local tweenToEnemy = TS:Create(rock, TweenInfo.new(0.18/speed, Enum.EasingStyle.Linear), {CFrame = enemyCFrame + Vector3.new(0,-1,0)})
-	tweenToEnemy:Play()
-	local groundemit =Folder:WaitForChild("GroundVfx"):Clone()
-	groundemit.CFrame = enemyCFrame + Vector3.new(0,-1,0)
-	groundemit.Parent = vfxFolder
-	Debris:AddItem(groundemit,3/speed)
-	UnitSoundEffectLib.playSound(HRP.Parent, 'Explosion')
-	task.wait(0.18/speed)
-	VFX_Helper.EmitAllParticles(groundemit)
-	connection:Disconnect()
 
+	local speed = GameSpeed.Value
+	local Folder = wisestJediVFX:FindFirstChild("Second")
+	local characterModel = HRP.Parent
+
+	local enemypos = Vector3.new(target.HumanoidRootPart.Position.X, HRP.Position.Y, target.HumanoidRootPart.Position.Z)
+	local startCFrame = HRP.CFrame
+
+	task.wait(0.12 / speed)
+	if not HRP or not characterModel then return end
+
+	if characterModel:FindFirstChild("Attacking") then characterModel.Attacking.Value = true end
+
+	UnitSoundEffectLib.playSound(characterModel, "Force1", false)
+
+	local secondEffect = getStageEffect(Folder, "Second")
+	local projectile
+
+	if secondEffect then
+		local initialCFrame = startCFrame * CFrame.new(0, 0, -2) * CFrame.Angles(math.rad(-90), 0, 0)
+
+		projectile = secondEffect:Clone()
+		projectile = setEffectCFrame(projectile, initialCFrame)
+		projectile.Parent = vfxFolder
+		Debris:AddItem(projectile, 5 / speed)
+
+		for _, obj in projectile:GetDescendants() do
+			if obj:IsA("ParticleEmitter") and obj.Parent and (string.find(string.lower(obj.Parent.Name), "ground") or string.find(string.lower(obj.Parent.Name), "smoke")) then
+				local emitCount = obj:GetAttribute("EmitCount") or 20
+				obj:Emit(emitCount)
+			end
+		end
+
+		local enemyFinalCFrame = CFrame.new(enemypos) * CFrame.Angles(startCFrame:ToEulerAnglesXYZ()) * CFrame.Angles(math.rad(-90), 0, 0)
+		TweenService:Create(projectile, TweenInfo.new(1.2 / speed, Enum.EasingStyle.Linear), {CFrame = enemyFinalCFrame}):Play()
+	end
+
+	task.wait(1.2 / speed)
+	if not HRP or not characterModel then return end
+
+	UnitSoundEffectLib.playSound(characterModel, "Explosion", false)
+
+	if projectile then
+		for _, obj in projectile:GetDescendants() do
+			if obj:IsA("ParticleEmitter") and obj.Parent and (string.find(string.lower(obj.Parent.Name), "impact") or string.find(string.lower(obj.Parent.Name), "specsclose") or string.find(string.lower(obj.Parent.Name), "pop")) then
+				local emitCount = obj:GetAttribute("EmitCount") or 30
+				obj:Emit(emitCount)
+			end
+		end
+
+		task.delay(0.5, function()
+			if projectile then
+				projectile.Transparency = 1
+				VFX_Helper.OffAllParticles(projectile)
+			end
+		end)
+	end
+
+	if characterModel:FindFirstChild("Attacking") then characterModel.Attacking.Value = false end
 end
 
 module["Force Palm"] = function(HRP, target)
-	local Folder = VFX.Wisest_Jedi.Thrid
-	local speed = GameSpeed.Value
-	local enemypos = Vector3.new(target.HumanoidRootPart.Position.X,HRP.Position.Y,target.HumanoidRootPart.Position.Z)
-	local trail = Folder:WaitForChild("Trail"):Clone()
-	trail.CFrame = HRP.Parent["Right Arm"].O.CFrame * CFrame.Angles(0,math.rad(90),0)
-	trail.Parent = vfxFolder
-	Debris:AddItem(trail,1.4/speed)
-	local weld = Instance.new("WeldConstraint")
-	weld.Part0 = HRP.Parent["Right Arm"].O
-	weld.Part1 = trail
-	weld.Parent = trail
-	UnitSoundEffectLib.playSound(HRP.Parent, 'Force1')
-	task.wait(1/speed)
+	if not target or not target:FindFirstChild("HumanoidRootPart") then return end
 	if not HRP or not HRP.Parent then return end
 
-	HRP.Parent.Attacking.Value = true
-	local HRPCF = HRP.CFrame
-	local Range = HRP.Parent.Config:WaitForChild("Range").Value
-	local targetPosition = (HRPCF * CFrame.new(0, 0, -Range)).Position
+	local speed = GameSpeed.Value
+	local Folder = wisestJediVFX:FindFirstChild("Third")
+	local characterModel = HRP.Parent
 
-	local Fire = Folder:WaitForChild("YodaEmit"):Clone()
-	Fire.CFrame = HRP.CFrame
-	Fire.Position = HRP.Parent["Left Arm"].Position 
-	Fire.Parent = HRP
-	Debris:AddItem(Fire,4/speed)
-	VFX_Helper.EmitAllParticles(Fire)
-	RocksModule.Trail(HRP.CFrame,HRP.CFrame.LookVector,Range - 2.5,3,Vector3.new(0.5,0.5,0.5),0.02,0.05,0.4,true,6,3)
-	UnitSoundEffectLib.playSound(HRP.Parent, 'Explosion')
-	task.wait(1/speed)
-	HRP.Parent.Attacking.Value = false
+	UnitSoundEffectLib.playSound(characterModel, "Force1", false)
+
+	task.wait(1 / speed)
+	if not HRP or not characterModel then return end
+
+	if characterModel:FindFirstChild("Attacking") then characterModel.Attacking.Value = true end
+
+	local RangeValue = characterModel:FindFirstChild("Config") and characterModel.Config:FindFirstChild("Range")
+	local Range = RangeValue and RangeValue.Value or 10
+
+	local thirdEffect = getStageEffect(Folder, "Third")
+
+	if thirdEffect then
+		local baseSpawnCFrame = HRP.CFrame * CFrame.new(0, 0, -2)
+
+		local tiltedSpawnCFrame = baseSpawnCFrame * CFrame.new(0,0,0) * CFrame.Angles(math.rad(-90), 0, 0)
+
+		local mainVFX = thirdEffect:Clone()
+		mainVFX = setEffectCFrame(mainVFX, tiltedSpawnCFrame)
+		mainVFX.Parent = vfxFolder
+		Debris:AddItem(mainVFX, 4 / speed)
+
+		emitParticles(mainVFX)
+
+		local distance = Range - 2.5
+		local finalPosition = baseSpawnCFrame.Position + (HRP.CFrame.LookVector * distance)
+
+		local finalTiltedCFrame = CFrame.new(finalPosition) * tiltedSpawnCFrame.Rotation
+
+		TweenService:Create(mainVFX, TweenInfo.new(0.5 / speed, Enum.EasingStyle.Linear), {CFrame = finalTiltedCFrame}):Play()
+	end
+
+	RocksModule.Trail(HRP.CFrame, HRP.CFrame.LookVector, Range - 2.5, 3, Vector3.new(0.5, 0.5, 0.5), 0.02, 0.05, 0.4, true, 6, 3)
+	UnitSoundEffectLib.playSound(characterModel, "Explosion", false)
+
+	task.wait(1 / speed)
+
+	if characterModel:FindFirstChild("Attacking") then characterModel.Attacking.Value = false end
 end
 
+-- INIT
 return module

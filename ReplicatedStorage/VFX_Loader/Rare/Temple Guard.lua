@@ -7,34 +7,23 @@ local Debris = game:GetService("Debris")
 
 local vfxFolder = repStorage.VFX
 local templeGuardVfx = vfxFolder["Temple Guard"]
+local VFX_Helper = require(repStorage.Modules.VFX_Helper)
 
 local module = {}
 
-local function emitParticles(particle: ParticleEmitter)
-	local delayTime = particle:GetAttribute("DelayTime") or 0
-	local emitCount = particle:GetAttribute("EmitCount") or 10
-	
-	if delayTime > 0 then
-		task.delay(delayTime, function()
-			particle:Emit(emitCount)
-		end)
-	else
-		particle:Emit(emitCount)
-	end
+local function emitParticles(container)
+	VFX_Helper.EmitAllParticles(container)
 end
 
 function module.Shunt(HRP, target)
 	local shunt = templeGuardVfx.Shunt:Clone()
 	shunt.CFrame = HRP.CFrame * CFrame.new(0,0,-2)
 	shunt.Parent = workspace.VFX
-	
+
 	task.delay(.5, function() -- random number to time with animation
-		for _, particle in shunt:GetDescendants() do
-			if not particle:IsA("ParticleEmitter") then continue end
-			emitParticles(particle)
-			UnitSoundEffectLib.playSound(HRP.Parent, 'Force1')
-		end
-		
+		emitParticles(shunt)
+		UnitSoundEffectLib.playSound(HRP.Parent, 'Force1')
+
 		Debris:AddItem(shunt, 2)
 	end)
 end

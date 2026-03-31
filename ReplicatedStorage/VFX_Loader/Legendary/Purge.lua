@@ -1,104 +1,131 @@
+-- SERVICES
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
-
-local vfxFolder = workspace.VFX
-local supperCommandoVfx = game:GetService("ReplicatedStorage").VFX.Purge
-local rs = game:GetService("ReplicatedStorage")
-local Effects = rs.VFX
-local TS = game:GetService("TweenService")
+local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
-local VFX = rs.VFX
-local VFX_Helper = require(rs.Modules.VFX_Helper)
-local GameSpeed = workspace.Info.GameSpeed
-local tweenService = game:GetService("TweenService")
 
+-- CONSTANTS
+local GameSpeed = workspace.Info.GameSpeed
+local vfxFolder = workspace:FindFirstChild("VFX") or workspace
+
+-- VARIABLES
+local VFX = ReplicatedStorage.VFX
+local purgeVFX = VFX.Purge
+local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
+local VFX_Helper = require(ReplicatedStorage.Modules.VFX_Helper)
 local module = {}
 
+-- FUNCTIONS
 local function getMag(pos1, pos2)
 	return (pos1 - pos2).Magnitude
 end
 
-local function tween(obj, length, details)
-	tweenService:Create(obj, TweenInfo.new(length, Enum.EasingStyle.Linear), details):Play()
-end
-
-
-local function emitParticles(particle: ParticleEmitter)
-	local delayTime = particle:GetAttribute("DelayTime") or 0
-	local emitCount = particle:GetAttribute("EmitCount") or particle.Rate
-
-	if delayTime > 0 then
-		task.delay(delayTime, function()
-			particle:Emit(emitCount)
-		end)
-	else
-		particle:Emit(emitCount)
+local function tween(obj, length, targetCFrame)
+	if obj:IsA("Model") then
+		if obj.PrimaryPart then
+			TweenService:Create(obj.PrimaryPart, TweenInfo.new(length, Enum.EasingStyle.Linear), {CFrame = targetCFrame}):Play()
+		else
+			local cfValue = Instance.new("CFrameValue")
+			cfValue.Value = obj:GetPivot()
+			cfValue.Changed:Connect(function(newCf)
+				obj:PivotTo(newCf)
+			end)
+			local tw = TweenService:Create(cfValue, TweenInfo.new(length, Enum.EasingStyle.Linear), {Value = targetCFrame})
+			tw:Play()
+			Debris:AddItem(cfValue, length + 0.1)
+		end
+	elseif obj:IsA("BasePart") then
+		TweenService:Create(obj, TweenInfo.new(length, Enum.EasingStyle.Linear), {CFrame = targetCFrame}):Play()
 	end
 end
 
-module["Electric Blast"] = function(HRP, target)
-	local rocketExplosion = supperCommandoVfx.First["electric blast"]:Clone()
-	
-	task.delay(0.3, function()
-		rocketExplosion.CFrame = HRP.CFrame * CFrame.new(0,0,-2)
-		rocketExplosion.Parent = workspace.VFX
-		
-		UnitSoundEffectLib.playSound(HRP.Parent, 'Thunder')
-		
-		for _, particle in rocketExplosion:GetDescendants() do
-			if not particle:IsA("ParticleEmitter") then continue end
-			emitParticles(particle)
-		end
-		
-		Debris:AddItem(rocketExplosion, 2)
-	end)
+local function getStageEffect(folder, effectName)
+	if not folder then return nil end
+	return folder:FindFirstChild(effectName)
 end
 
+local function setEffectCFrame(effect, cf)
+	if not effect or not cf then return effect end
+	if effect:IsA("Model") then
+		effect:PivotTo(cf)
+	elseif effect:IsA("BasePart") then
+		effect.CFrame = cf
+	end
+	return effect
+end
 
-module["Electric Judgement"] = function(HRP, target)
-	local Folder = VFX.Purge.Second
+-- INIT
+module["Electric Blast"] = function(HRP, target)
+	if not target or not target:FindFirstChild("HumanoidRootPart") then return end
+
+	local Folder = purgeVFX:FindFirstChild("First")
 	local speed = GameSpeed.Value
-	local characterModel = HRP.Parent
-	local enemyPos = target:GetPivot().Position
-	local distance = (HRP.Position - enemyPos).Magnitude
-	local timeToTravel = math.clamp(distance / 5, 0.5, 1.5)
 
 	task.wait(0.3 / speed)
 	if not HRP or not HRP.Parent then return end
 
-	characterModel.Attacking.Value = true
+	HRP.Parent.Attacking.Value = true
+	UnitSoundEffectLib.playSound(HRP.Parent, 'Thunder')
 
-	local BallTemplate = Folder:FindFirstChild("Ball")
-	if not BallTemplate then error("Ball effect missing in VFX.Purge.Second") end
+	local firstEffect = getStageEffect(Folder, "First")
+	if firstEffect then
+		local clone = firstEffect:Clone()
+		clone = setEffectCFrame(clone, HRP.CFrame * CFrame.new(0, 0, -2))
+		clone.Parent = vfxFolder
 
-	local Ball = BallTemplate:Clone()
-	Ball.CFrame = HRP.CFrame
-	Ball.Parent = workspace.VFX
-
-	local attachment1 = Ball.Ball
-	
-
-	for _, v in attachment1:GetChildren() do
-		if v:IsA("ParticleEmitter") then
-			v.Enabled = true
-		end
+		VFX_Helper.EmitAllParticles(clone)
+		Debris:AddItem(clone, 2 / speed)
 	end
 
-	
-
-	TS:Create(Ball, TweenInfo.new(timeToTravel, Enum.EasingStyle.Linear), {Position = enemyPos}):Play()
-	UnitSoundEffectLib.playSound(HRP.Parent, 'Thunder')
-	
-	Debris:AddItem(Ball, timeToTravel)
-	
-	
-	
-	
-	characterModel.Attacking.Value = false
+	HRP.Parent.Attacking.Value = false
 end
 
+module["Electric Judgement"] = function(HRP, target)
+	if not target or not target:FindFirstChild("HumanoidRootPart") then return end
 
+	local Folder = purgeVFX:FindFirstChild("Second")
+	local speed = GameSpeed.Value
+	local enemyPos = target.HumanoidRootPart.Position
+	local targetCFrame = CFrame.new(enemyPos)
 
+	task.wait(0.3 / speed)
+	if not HRP or not HRP.Parent then return end
 
+	HRP.Parent.Attacking.Value = true
+	UnitSoundEffectLib.playSound(HRP.Parent, 'Thunder')
+
+	local secondEffect = getStageEffect(Folder, "Second")
+	if secondEffect then
+		local clone = secondEffect:Clone()
+		clone = setEffectCFrame(clone, HRP.CFrame)
+		clone.Parent = vfxFolder
+
+		local distance = getMag(HRP.Position, enemyPos)
+		local timeToTravel = math.clamp(distance / (30 * speed), 0.5 / speed, 1.5 / speed)
+
+		local ballAttachment = clone:FindFirstChild("Ball")
+		if ballAttachment then
+			for _, v in ballAttachment:GetChildren() do
+				if v:IsA("ParticleEmitter") then
+					v.Enabled = true
+				end
+			end
+		end
+
+		tween(clone, timeToTravel, targetCFrame)
+		Debris:AddItem(clone, timeToTravel + (1.5 / speed))
+
+		task.delay(timeToTravel, function()
+			if clone and clone.Parent and ballAttachment then
+				for _, v in ballAttachment:GetChildren() do
+					if v:IsA("ParticleEmitter") then
+						v.Enabled = false
+					end
+				end
+			end
+		end)
+	end
+
+	HRP.Parent.Attacking.Value = false
+end
 
 return module

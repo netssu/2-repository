@@ -15,7 +15,7 @@ local BezierCurve = require(rs.VFXModules.BezierCurve)
 
 for i, unit in script:GetDescendants() do
     if not unit:IsA("ModuleScript") then continue end
-	module[unit.Name] = require(unit)
+	module[unit.Name] = require(unit) 
 end
 
 function module.getEnemyPos(enemy,oldpos)

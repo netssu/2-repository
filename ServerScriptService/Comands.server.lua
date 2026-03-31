@@ -1,5 +1,10 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local TowerModule = require(script.Parent.Main.Tower)
+local GetUnitModel = require(ReplicatedStorage.Modules.GetUnitModel)
+local UpgradesModule = require(ReplicatedStorage.Upgrades)
 
 print("[GIVE/EQUIP] Script iniciado")
 
@@ -18,43 +23,110 @@ local function dbg(player, msg)
 	end
 end
 
-local function findTowerName(inputName)
-	local towersFolder = ReplicatedStorage:FindFirstChild("Towers")
-	if not towersFolder then
-		print("[GIVE/EQUIP] ERRO: ReplicatedStorage.Towers não encontrado")
-		return nil
+local function trim(value)
+	if type(value) ~= "string" then
+		return value
 	end
 
-	print("[GIVE/EQUIP] Procurando tower:", inputName)
+	return value:match("^%s*(.-)%s*$")
+end
 
-	for _, folder in ipairs(towersFolder:GetChildren()) do
-		print("[GIVE/EQUIP] Pasta:", folder.Name, folder.ClassName)
+local function getTowerFolderPath(towerModel)
+	local towersFolder = ReplicatedStorage:FindFirstChild("Towers")
+	if not towersFolder or not towerModel then
+		return ""
+	end
 
-		if folder:IsA("Folder") then
-			for _, tower in ipairs(folder:GetChildren()) do
-				print("[GIVE/EQUIP]  ->", tower.Name)
-				if tower.Name:lower() == inputName:lower() then
-					print("[GIVE/EQUIP] MATCH:", tower.Name)
-					return tower.Name
-				end
-			end
+	local segments = {}
+	local current = towerModel.Parent
+
+	while current and current ~= towersFolder do
+		table.insert(segments, 1, current.Name)
+		current = current.Parent
+	end
+
+	return table.concat(segments, "/")
+end
+
+local function getTowerCatalog()
+	local catalog = {}
+
+	for towerName in pairs(UpgradesModule) do
+		local towerModel = GetUnitModel[towerName]
+		if towerModel and towerModel:IsA("Model") and towerModel:FindFirstChild("HumanoidRootPart", true) then
+			local folderPath = getTowerFolderPath(towerModel)
+			table.insert(catalog, {
+				name = towerName,
+				folderPath = folderPath,
+				sortKey = string.lower(folderPath .. "/" .. towerName)
+			})
 		end
 	end
 
-	print("[GIVE/EQUIP] Nenhuma tower encontrada para:", inputName)
-	return nil
+	table.sort(catalog, function(a, b)
+		if a.sortKey == b.sortKey then
+			return string.lower(a.name) < string.lower(b.name)
+		end
+
+		return a.sortKey < b.sortKey
+	end)
+
+	return catalog
+end
+
+local function findTowerName(inputName)
+	local catalog = getTowerCatalog()
+	if #catalog == 0 then
+		return nil, nil, "Nenhuma tower valida encontrada no catalogo"
+	end
+
+	if not inputName or inputName == "" then
+		return nil, nil, "Informe o nome ou ID da tower"
+	end
+
+	local numericIndex = tonumber(inputName)
+	if numericIndex and math.floor(numericIndex) == numericIndex then
+		local entry = catalog[numericIndex]
+		if entry then
+			dbg(nil, string.format("ID %d => %s [%s]", numericIndex, entry.name, entry.folderPath))
+			return entry.name, numericIndex
+		end
+
+		return nil, nil, "ID invalido. Use um numero entre 1 e " .. tostring(#catalog)
+	end
+
+	for index, entry in ipairs(catalog) do
+		if entry.name:lower() == inputName:lower() then
+			dbg(nil, string.format("MATCH por nome => [%d] %s [%s]", index, entry.name, entry.folderPath))
+			return entry.name, index
+		end
+	end
+
+	return nil, nil, "Tower nao existe"
+end
+
+local function dumpTowerCatalog(player)
+	local catalog = getTowerCatalog()
+	dbg(player, "===== DUMP TOWER IDS =====")
+
+	for index, entry in ipairs(catalog) do
+		dbg(player, string.format("[%d] %s | Pasta=%s", index, entry.name, entry.folderPath))
+	end
+
+	dbg(player, "===== FIM DUMP TOWER IDS =====")
 end
 
 local function dumpOwnedTowers(player)
 	local owned = player:FindFirstChild("OwnedTowers")
 	if not owned then
-		dbg(player, "OwnedTowers não encontrado")
+		dbg(player, "OwnedTowers nao encontrado")
 		return
 	end
 
 	dbg(player, "===== DUMP OWNEDTOWERS =====")
 	for i, tower in ipairs(owned:GetChildren()) do
-		dbg(player,
+		dbg(
+			player,
 			string.format(
 				"[%d] %s | Equipped=%s | Slot=%s | Level=%s | Trait=%s | Shiny=%s | UniqueID=%s",
 				i,
@@ -151,34 +223,34 @@ local function giveAndEquipTower(player, towerName, forcedSlot)
 	dbg(player, "giveAndEquipTower iniciado com towerName = " .. tostring(towerName) .. " | forcedSlot = " .. tostring(forcedSlot))
 
 	if not player:FindFirstChild("DataLoaded") then
-		dbg(player, "ERRO: DataLoaded ainda não existe")
-		return false, "Data ainda não carregada"
+		dbg(player, "ERRO: DataLoaded ainda nao existe")
+		return false, "Data ainda nao carregada"
 	end
 
 	if typeof(_G.createTower) ~= "function" then
-		dbg(player, "ERRO: _G.createTower não está disponível")
-		return false, "_G.createTower não disponível"
+		dbg(player, "ERRO: _G.createTower nao esta disponivel")
+		return false, "_G.createTower nao disponivel"
 	end
 
 	local owned = player:FindFirstChild("OwnedTowers")
 	if not owned then
-		dbg(player, "ERRO: OwnedTowers não encontrado")
-		return false, "OwnedTowers não encontrado"
+		dbg(player, "ERRO: OwnedTowers nao encontrado")
+		return false, "OwnedTowers nao encontrado"
 	end
 
-	local realTowerName = findTowerName(towerName)
+	local realTowerName, towerIndex, resolveError = findTowerName(towerName)
 	if not realTowerName then
-		dbg(player, "ERRO: tower não existe")
-		return false, "Tower não existe"
+		dbg(player, "ERRO: " .. tostring(resolveError))
+		return false, resolveError or "Tower nao existe"
 	end
 
-	dbg(player, "Nome resolvido: " .. realTowerName)
+	dbg(player, "Nome resolvido: " .. realTowerName .. " | ID = " .. tostring(towerIndex))
 
 	local existing = findOwnedTowerByName(player, realTowerName)
 	if existing then
-		dbg(player, "Player já possui essa tower. Vai reutilizar a existente.")
+		dbg(player, "Player ja possui essa tower. Vai reutilizar a existente.")
 	else
-		dbg(player, "Player não possui essa tower. Criando via _G.createTower...")
+		dbg(player, "Player nao possui essa tower. Criando via _G.createTower...")
 		existing = _G.createTower(owned, realTowerName, "", {Shiny = false})
 		dbg(player, "Tower criada: " .. tostring(existing))
 	end
@@ -208,7 +280,8 @@ local function giveAndEquipTower(player, towerName, forcedSlot)
 	existing:SetAttribute("EquippedSlot", tostring(slotToUse))
 
 	dbg(player, "Estado final da tower:")
-	dbg(player,
+	dbg(
+		player,
 		string.format(
 			"%s | Equipped=%s | EquippedSlot=%s | Level=%s | Exp=%s | Trait=%s | Locked=%s | UniqueID=%s | Shiny=%s",
 			existing.Name,
@@ -228,6 +301,110 @@ local function giveAndEquipTower(player, towerName, forcedSlot)
 	return true, "Tower dada e equipada no slot " .. tostring(slotToUse)
 end
 
+local function getGroundedSpawnCFrame(player, towerName)
+	local character = player.Character
+	if not character then
+		return nil, "Character nao carregado"
+	end
+
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then
+		return nil, "HumanoidRootPart nao encontrado"
+	end
+
+	local towerModel = GetUnitModel[towerName]
+	local towerRoot = towerModel and towerModel:FindFirstChild("HumanoidRootPart", true)
+	if not towerRoot then
+		return nil, "HumanoidRootPart da tower nao encontrado"
+	end
+
+	local raycastFilter = {character}
+	local towersFolder = Workspace:FindFirstChild("Towers")
+	local redZones = Workspace:FindFirstChild("RedZones")
+
+	if towersFolder then
+		table.insert(raycastFilter, towersFolder)
+	end
+
+	if redZones then
+		table.insert(raycastFilter, redZones)
+	end
+
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = raycastFilter
+
+	local rayOrigin = hrp.Position + Vector3.new(0, 10, 0)
+	local rayDirection = Vector3.new(0, -250, 0)
+	local raycastResult = Workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+	if not raycastResult then
+		return nil, "Nao encontrei chao abaixo do player"
+	end
+
+	local height = towerRoot.Size.Y * 1.5
+	local spawnPosition = Vector3.new(hrp.Position.X, raycastResult.Position.Y + height, hrp.Position.Z)
+	local forward = Vector3.new(hrp.CFrame.LookVector.X, 0, hrp.CFrame.LookVector.Z)
+
+	if forward.Magnitude <= 0.001 then
+		return CFrame.new(spawnPosition)
+	end
+
+	return CFrame.lookAt(spawnPosition, spawnPosition + forward.Unit)
+end
+
+local function putTowerHere(player, towerName)
+	dbg(player, "putTowerHere iniciado com towerName = " .. tostring(towerName))
+
+	if not player:FindFirstChild("DataLoaded") then
+		dbg(player, "ERRO: DataLoaded ainda nao existe")
+		return false, "Data ainda nao carregada"
+	end
+
+	if typeof(_G.createTower) ~= "function" then
+		dbg(player, "ERRO: _G.createTower nao esta disponivel")
+		return false, "_G.createTower nao disponivel"
+	end
+
+	local owned = player:FindFirstChild("OwnedTowers")
+	if not owned then
+		dbg(player, "ERRO: OwnedTowers nao encontrado")
+		return false, "OwnedTowers nao encontrado"
+	end
+
+	local realTowerName, towerIndex, resolveError = findTowerName(towerName)
+	if not realTowerName then
+		dbg(player, "ERRO: " .. tostring(resolveError))
+		return false, resolveError or "Tower nao existe"
+	end
+
+	dbg(player, "Tower escolhida para puthere: " .. realTowerName .. " | ID = " .. tostring(towerIndex))
+
+	local existing = findOwnedTowerByName(player, realTowerName)
+	if not existing then
+		dbg(player, "Player nao possui essa tower. Criando via _G.createTower...")
+		existing = _G.createTower(owned, realTowerName, "", {Shiny = false})
+	end
+
+	if not existing then
+		dbg(player, "ERRO: falha ao criar/obter tower")
+		return false, "Falha ao criar tower"
+	end
+
+	local spawnCFrame, spawnError = getGroundedSpawnCFrame(player, realTowerName)
+	if not spawnCFrame then
+		dbg(player, "ERRO: " .. tostring(spawnError))
+		return false, spawnError or "Nao foi possivel calcular a posicao da tower"
+	end
+
+	local spawnedTower = TowerModule.Spawn(player, existing, spawnCFrame, nil, true, true, true)
+	if not spawnedTower then
+		dbg(player, "ERRO: falha ao colocar tower no mapa")
+		return false, "Nao foi possivel colocar a tower"
+	end
+
+	return true, "Tower colocada no chao, na sua posicao"
+end
+
 Players.PlayerAdded:Connect(function(player)
 	dbg(player, "PlayerAdded")
 
@@ -235,11 +412,23 @@ Players.PlayerAdded:Connect(function(player)
 		dbg(player, "Chat recebido: " .. tostring(message))
 
 		if not ADMIN_USERS[player.Name] then
-			dbg(player, "Sem permissão")
+			dbg(player, "Sem permissao")
 			return
 		end
 
-		local cmd, arg1, arg2 = message:match("^(%S+)%s+([^,]+)%s*,?%s*(.*)$")
+		local cmd, rest = message:match("^(%S+)%s*(.*)$")
+		local arg1 = nil
+		local arg2 = ""
+
+		if rest and rest ~= "" then
+			arg1, arg2 = rest:match("^([^,]+)%s*,%s*(.*)$")
+			if not arg1 then
+				arg1 = rest
+			end
+		end
+
+		arg1 = trim(arg1)
+		arg2 = trim(arg2) or ""
 		dbg(player, "Parser => cmd=" .. tostring(cmd) .. " arg1=" .. tostring(arg1) .. " arg2=" .. tostring(arg2))
 
 		if not cmd then
@@ -251,7 +440,11 @@ Players.PlayerAdded:Connect(function(player)
 		if cmd == "!giveequip" then
 			local success, response = giveAndEquipTower(player, arg1, arg2 ~= "" and arg2 or nil)
 			dbg(player, "Resultado => " .. tostring(success) .. " | " .. tostring(response))
-
+		elseif cmd == "!puthere" then
+			local success, response = putTowerHere(player, arg1)
+			dbg(player, "Resultado => " .. tostring(success) .. " | " .. tostring(response))
+		elseif cmd == "!dumptowerids" then
+			dumpTowerCatalog(player)
 		elseif cmd == "!dumpunits" then
 			dumpOwnedTowers(player)
 		end

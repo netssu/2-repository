@@ -1,51 +1,83 @@
-local module = {}
-local rs = game:GetService("ReplicatedStorage")
-local Effects = rs.VFX
-local vfxFolder = workspace.VFX
-local TS = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
-local VFX = rs.VFX
-local VFX_Helper = require(rs.Modules.VFX_Helper)
+
+local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
+local VFX = ReplicatedStorage.VFX
+local VFX_Helper = require(ReplicatedStorage.Modules.VFX_Helper)
 local GameSpeed = workspace.Info.GameSpeed
+local vfxFolder = workspace.VFX
+
+local module = {}
 
 module["Burst Fire"] = function(HRP, target)
-	local speed = GameSpeed.Value
+	local speed = GameSpeed.Value or 1
 	local Folder = VFX.Greedy.First
-	local BallTemplate = Folder:WaitForChild("Ball")
-	local vfxFolder = workspace:WaitForChild("VFX")
+	local characterModel = HRP.Parent
 
-	VFX_Helper.SoundPlay(HRP, Folder.First)
+	if not HRP or not characterModel then return end
 
-	local HRPCF = HRP.CFrame
-	if not HRP or not HRP.Parent then return end
-	HRP.Parent.Attacking.Value = true
+	local targetRoot = target:FindFirstChild("HumanoidRootPart")
+	if not targetRoot then return end
 
-	local Range = HRP.Parent.Config:WaitForChild("Range").Value
-	local targetPosition = (HRPCF * CFrame.new(0, 0, -Range)).Position
+	local AttackingValue = characterModel:FindFirstChild("Attacking")
 
-	local points = {HRP.Parent.LPoint, HRP.Parent.RPoint}
+	if AttackingValue then AttackingValue.Value = true end
+
+	local vfxContainer
+	for _, child in Folder:GetChildren() do
+		if not child:IsA("Sound") then
+			vfxContainer = child
+			break
+		end
+	end
+
+	if not vfxContainer then 
+		if AttackingValue then AttackingValue.Value = false end
+		return 
+	end
+
+	local points = {
+		characterModel:FindFirstChild("LPoint"), 
+		characterModel:FindFirstChild("RPoint")
+	}
 
 	for i = 1, 4 do
-		if not HRP or not HRP.Parent then return end
+		if not HRP or not characterModel or not targetRoot then break end
+
+		UnitSoundEffectLib.playSound(characterModel, "BlasterBurst1", false)
 
 		local currentPoint = points[(i % 2) + 1]
-		local Ball = BallTemplate:Clone()
-		Ball.CFrame = currentPoint.CFrame
-		Ball.Position = currentPoint.Position
-		Ball.Parent = vfxFolder
+		local startPos = currentPoint and currentPoint.Position or HRP.Position
+		local targetPos = targetRoot.Position
 
-		Debris:AddItem(Ball, 1 / speed)
-		TS:Create(Ball, TweenInfo.new(0.13 / speed, Enum.EasingStyle.Linear), {
-			Position = targetPosition
-		}):Play()
+		local startCFrame = CFrame.lookAt(startPos, targetPos)
+
+		local projectile = VFX_Helper.CloneObject(
+			vfxContainer,
+			startCFrame,
+			vfxFolder,
+			(0.13 + 1) / speed,
+			true
+		)
+
+		VFX_Helper.OnAllParticles(projectile)
+
+		local endCFrame = CFrame.lookAt(targetPos, targetPos + startCFrame.LookVector)
+		TweenService:Create(projectile, TweenInfo.new(0.13 / speed, Enum.EasingStyle.Linear), {CFrame = endCFrame}):Play()
+
+		task.delay(0.13 / speed, function()
+			if projectile then
+				VFX_Helper.OffAllParticles(projectile)
+				projectile.Transparency = 1
+			end
+		end)
 
 		task.wait(0.5 / speed)
 	end
 
-	if not HRP or not HRP.Parent then return end
-	HRP.Parent.Attacking.Value = false
+	if not HRP or not characterModel then return end
+	if AttackingValue then AttackingValue.Value = false end
 end
-
-
 
 return module

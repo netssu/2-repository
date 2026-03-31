@@ -1,3 +1,4 @@
+------------------//SERVICES
 local ContextActionService: ContextActionService = game:GetService("ContextActionService")
 local Players: Players = game:GetService("Players")
 local ReplicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -6,18 +7,24 @@ local TweenService: TweenService = game:GetService("TweenService")
 local Debris: Debris = game:GetService("Debris")
 local UserInputService: UserInputService = game:GetService("UserInputService")
 
+------------------//CONSTANTS
 local POSSESS_KEY: Enum.KeyCode = Enum.KeyCode.E
 local POSSESS_ACTION_NAME: string = "PossessExitAction"
 local SHOOT_ACTION_NAME: string = "PossessShootAction"
+local CANCEL_ACTION_NAME: string = "PossessCancelAction"
 local ABILITY_ONE_ACTION_NAME: string = "PossessAbilityOneAction"
 local ABILITY_TWO_ACTION_NAME: string = "PossessAbilityTwoAction"
 local BLOCK_ACTION_NAME: string = "PossessBlockAction"
 local INPUT_PRIORITY: number = Enum.ContextActionPriority.High.Value + 100
 
-local ABILITY_SLOT_COUNT: number = 2
+local ABILITY_SLOT_COUNT: number = 3
 local ABILITY_DEFAULT_COOLDOWN: number = 1
-local POSSESSION_CAMERA_ANIM_DURATION: number = 0.6
-local GROUND_CLEARANCE_HEIGHT: number = 4
+local POSSESSION_CAMERA_ANIM_DURATION: number = 0.9
+local POSSESSION_CAMERA_BEHIND_DISTANCE: number = 6
+local POSSESSION_CAMERA_BEHIND_HEIGHT: number = 2
+local POSSESSION_CAMERA_LOOK_HEIGHT: number = 1.6
+local POSSESSION_CAMERA_ENTER_HEIGHT_OFFSET: number = 0.08
+local GROUND_CLEARANCE_HEIGHT: number = 1
 
 local MAX_ENERGY: number = 100
 local DRAIN_RATE: number = 0
@@ -31,56 +38,31 @@ local MAX_SWAY_POSITION: number = 0.18
 local MAX_SWAY_ROTATION: number = 0.08
 
 local VISIBLE_NAME_TOKENS: {string} = {
-	"arm",
-	"hand",
-	"weapon",
-	"sword",
-	"blade",
-	"gun",
-	"rifle",
-	"pistol",
-	"bow",
-	"staff",
-	"wand",
-	"shield",
+	"arm", "hand", "weapon", "sword", "blade", "gun",
+	"rifle", "pistol", "bow", "staff", "wand", "shield",
 }
 
 local VISIBLE_EXACT_NAMES: {[string]: boolean} = {
-	["left arm"] = true,
-	["right arm"] = true,
-	["lefthand"] = true,
-	["righthand"] = true,
-	["leftlowerarm"] = true,
-	["rightlowerarm"] = true,
-	["leftupperarm"] = true,
-	["rightupperarm"] = true,
+	["left arm"] = true, ["right arm"] = true,
+	["lefthand"] = true, ["righthand"] = true,
+	["leftlowerarm"] = true, ["rightlowerarm"] = true,
+	["leftupperarm"] = true, ["rightupperarm"] = true,
 }
 
 local BLOCKED_BODY_NAMES: {[string]: boolean} = {
-	["head"] = true,
-	["torso"] = true,
-	["humanoidrootpart"] = true,
-	["uppertorso"] = true,
-	["lowertorso"] = true,
-	["left leg"] = true,
-	["right leg"] = true,
-	["leftfoot"] = true,
-	["rightfoot"] = true,
-	["leftlowerleg"] = true,
-	["rightlowerleg"] = true,
-	["leftupperleg"] = true,
-	["rightupperleg"] = true,
+	["head"] = true, ["torso"] = true, ["humanoidrootpart"] = true,
+	["uppertorso"] = true, ["lowertorso"] = true,
+	["left leg"] = true, ["right leg"] = true,
+	["leftfoot"] = true, ["rightfoot"] = true,
+	["leftlowerleg"] = true, ["rightlowerleg"] = true,
+	["leftupperleg"] = true, ["rightupperleg"] = true,
 }
 
 local BLOCKED_BODY_TOKENS: {string} = {
-	"torso",
-	"leg",
-	"foot",
-	"head",
-	"root",
-	"pelvis",
+	"torso", "leg", "foot", "head", "root", "pelvis",
 }
 
+------------------//VARIABLES
 local player: Player = Players.LocalPlayer
 local camera: Camera = workspace.CurrentCamera
 
@@ -112,12 +94,12 @@ local percentLabel: TextLabel = playerGui:WaitForChild("Ingame_HUD"):WaitForChil
 local inCommandFrame: GuiObject = playerGui:WaitForChild("Ingame_HUD"):WaitForChild("InCommandFrame")
 
 local oldMaxZoom: number = player.CameraMaxZoomDistance
+local oldMinZoom: number = player.CameraMinZoomDistance
 local hiddenVFXParts = {}
 local cachedUIStates = {}
 
 local upgradeChangedConnection: RBXScriptConnection? = nil
 local configUpgradeChangedConnection: RBXScriptConnection? = nil
-
 
 type AbilitySlotState = {
 	Frame: Frame,
@@ -127,126 +109,154 @@ type AbilitySlotState = {
 	CooldownLabel: TextLabel,
 	Cooldown: number,
 	ReadyAt: number,
+	AOEType: string?,
+	AOESize: number?,
+	Range: number?,
 }
 
-local crosshairGui = Instance.new("ScreenGui")
-crosshairGui.Name = "PossessionCrosshair"
-crosshairGui.ResetOnSpawn = false
-crosshairGui.Enabled = false
-crosshairGui.Parent = playerGui
+local targetingData = {
+	Active = false,
+	Slot = nil :: number?,
+	UIIndex = nil :: number?,
+	Indicator = nil :: BasePart?,
+	MaxRange = 0,
+}
 
-local crosshairCenter = Instance.new("Frame")
-crosshairCenter.AnchorPoint = Vector2.new(0.5, 0.5)
-crosshairCenter.Position = UDim2.fromScale(0.5, 0.5)
-crosshairCenter.Size = UDim2.fromOffset(4, 4)
-crosshairCenter.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
-crosshairCenter.BorderSizePixel = 0
-local corner = Instance.new("UICorner", crosshairCenter)
-corner.CornerRadius = UDim.new(1, 0)
-crosshairCenter.Parent = crosshairGui
+local crosshairGui: ScreenGui
+local abilityHudGui: ScreenGui
+local abilityHudContainer: Frame
+local abilitySlots: {[number]: AbilitySlotState} = {}
+local configure_ability_hud: (({[string]: any}?) -> ())? = nil
 
-local function createLine(size, pos)
+------------------//FUNCTIONS
+local function create_line(gui: ScreenGui, size: UDim2, pos: UDim2): ()
 	local line = Instance.new("Frame")
 	line.Size = size
 	line.Position = pos
 	line.AnchorPoint = Vector2.new(0.5, 0.5)
 	line.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
 	line.BorderSizePixel = 0
-	line.Parent = crosshairGui
+	line.Parent = gui
 end
 
-createLine(UDim2.fromOffset(2, 8), UDim2.new(0.5, 0, 0.5, -12))
-createLine(UDim2.fromOffset(2, 8), UDim2.new(0.5, 0, 0.5, 12))
-createLine(UDim2.fromOffset(8, 2), UDim2.new(0.5, -12, 0.5, 0))
-createLine(UDim2.fromOffset(8, 2), UDim2.new(0.5, 12, 0.5, 0))
+local function setup_ui(): ()
+	crosshairGui = Instance.new("ScreenGui")
+	crosshairGui.Name = "PossessionCrosshair"
+	crosshairGui.ResetOnSpawn = false
+	crosshairGui.Enabled = false
+	crosshairGui.Parent = playerGui
 
-local abilityHudGui = Instance.new("ScreenGui")
-abilityHudGui.Name = "PossessionAbilityHud"
-abilityHudGui.ResetOnSpawn = false
-abilityHudGui.Enabled = false
-abilityHudGui.Parent = playerGui
+	local crosshairCenter = Instance.new("Frame")
+	crosshairCenter.AnchorPoint = Vector2.new(0.5, 0.5)
+	crosshairCenter.Position = UDim2.fromScale(0.5, 0.5)
+	crosshairCenter.Size = UDim2.fromOffset(4, 4)
+	crosshairCenter.BackgroundColor3 = Color3.fromRGB(0, 255, 255)
+	crosshairCenter.BorderSizePixel = 0
+	crosshairCenter.Parent = crosshairGui
 
-local abilityHudContainer = Instance.new("Frame")
-abilityHudContainer.Name = "Container"
-abilityHudContainer.AnchorPoint = Vector2.new(1, 0.5)
-abilityHudContainer.Position = UDim2.fromScale(0.98, 0.5)
-abilityHudContainer.Size = UDim2.fromOffset(170, 150)
-abilityHudContainer.BackgroundTransparency = 1
-abilityHudContainer.Parent = abilityHudGui
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(1, 0)
+	corner.Parent = crosshairCenter
 
-local abilityHudLayout = Instance.new("UIListLayout")
-abilityHudLayout.FillDirection = Enum.FillDirection.Vertical
-abilityHudLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-abilityHudLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-abilityHudLayout.Padding = UDim.new(0, 8)
-abilityHudLayout.Parent = abilityHudContainer
+	create_line(crosshairGui, UDim2.fromOffset(2, 8), UDim2.new(0.5, 0, 0.5, -12))
+	create_line(crosshairGui, UDim2.fromOffset(2, 8), UDim2.new(0.5, 0, 0.5, 12))
+	create_line(crosshairGui, UDim2.fromOffset(8, 2), UDim2.new(0.5, -12, 0.5, 0))
+	create_line(crosshairGui, UDim2.fromOffset(8, 2), UDim2.new(0.5, 12, 0.5, 0))
 
-local abilitySlots: {[number]: AbilitySlotState} = {}
+	abilityHudGui = Instance.new("ScreenGui")
+	abilityHudGui.Name = "PossessionAbilityHud"
+	abilityHudGui.ResetOnSpawn = false
+	abilityHudGui.Enabled = false
+	abilityHudGui.Parent = playerGui
+
+	abilityHudContainer = Instance.new("Frame")
+	abilityHudContainer.Name = "Container"
+	abilityHudContainer.AnchorPoint = Vector2.new(0.5, 1)
+	abilityHudContainer.Position = UDim2.new(0.5, 0, 1, -20)
+	abilityHudContainer.Size = UDim2.fromOffset(300, 80)
+	abilityHudContainer.BackgroundTransparency = 1
+	abilityHudContainer.Parent = abilityHudGui
+
+	local abilityHudLayout = Instance.new("UIListLayout")
+	abilityHudLayout.FillDirection = Enum.FillDirection.Horizontal
+	abilityHudLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	abilityHudLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	abilityHudLayout.Padding = UDim.new(0, 12)
+	abilityHudLayout.Parent = abilityHudContainer
+end
 
 local function create_ability_slot(index: number): AbilitySlotState
 	local slotFrame = Instance.new("Frame")
 	slotFrame.Name = string.format("AbilitySlot%d", index)
-	slotFrame.Size = UDim2.fromOffset(150, 64)
-	slotFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	slotFrame.BackgroundTransparency = 0.2
+	slotFrame.Size = UDim2.fromOffset(70, 70)
+	slotFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+	slotFrame.BackgroundTransparency = 0.3
 	slotFrame.BorderSizePixel = 0
 	slotFrame.Parent = abilityHudContainer
 
 	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 1
-	stroke.Color = Color3.fromRGB(90, 90, 90)
+	stroke.Thickness = 2
+	stroke.Color = Color3.fromRGB(150, 150, 150)
 	stroke.Transparency = 0.2
 	stroke.Parent = slotFrame
 
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 6)
+	corner.CornerRadius = UDim.new(0, 8)
 	corner.Parent = slotFrame
 
 	local keyLabel = Instance.new("TextLabel")
 	keyLabel.Name = "Key"
 	keyLabel.BackgroundTransparency = 1
-	keyLabel.Position = UDim2.fromOffset(8, 4)
+	keyLabel.Position = UDim2.fromOffset(4, 2)
 	keyLabel.Size = UDim2.fromOffset(20, 16)
 	keyLabel.Font = Enum.Font.GothamBold
 	keyLabel.TextSize = 14
 	keyLabel.TextXAlignment = Enum.TextXAlignment.Left
-	keyLabel.TextColor3 = Color3.fromRGB(190, 190, 190)
-	keyLabel.Text = tostring(index)
+	keyLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+	keyLabel.Text = "Key"
+	keyLabel.ZIndex = 5
 	keyLabel.Parent = slotFrame
 
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "Name"
 	nameLabel.BackgroundTransparency = 1
-	nameLabel.Position = UDim2.fromOffset(8, 20)
-	nameLabel.Size = UDim2.new(1, -16, 0, 18)
+	nameLabel.Position = UDim2.new(0, 4, 1, -20)
+	nameLabel.Size = UDim2.new(1, -8, 0, 18)
 	nameLabel.Font = Enum.Font.GothamSemibold
-	nameLabel.TextSize = 13
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.TextSize = 11
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Center
 	nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	nameLabel.Text = "Ability"
+	nameLabel.ZIndex = 5
 	nameLabel.Parent = slotFrame
 
 	local cooldownFrame = Instance.new("Frame")
 	cooldownFrame.Name = "CooldownFill"
-	cooldownFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	cooldownFrame.BackgroundTransparency = 0.78
+	cooldownFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	cooldownFrame.BackgroundTransparency = 0.5
 	cooldownFrame.BorderSizePixel = 0
-	cooldownFrame.Position = UDim2.new(0, 0, 0, 0)
+	cooldownFrame.AnchorPoint = Vector2.new(0.5, 1)
+	cooldownFrame.Position = UDim2.new(0.5, 0, 1, 0)
 	cooldownFrame.Size = UDim2.fromScale(1, 0)
 	cooldownFrame.ZIndex = 3
 	cooldownFrame.Parent = slotFrame
 
+	local fillCorner = Instance.new("UICorner")
+	fillCorner.CornerRadius = UDim.new(0, 8)
+	fillCorner.Parent = cooldownFrame
+
 	local cooldownLabel = Instance.new("TextLabel")
 	cooldownLabel.Name = "Cooldown"
 	cooldownLabel.BackgroundTransparency = 1
-	cooldownLabel.Position = UDim2.fromOffset(8, 42)
-	cooldownLabel.Size = UDim2.new(1, -16, 0, 18)
-	cooldownLabel.Font = Enum.Font.Gotham
-	cooldownLabel.TextSize = 12
-	cooldownLabel.TextXAlignment = Enum.TextXAlignment.Left
-	cooldownLabel.TextColor3 = Color3.fromRGB(190, 190, 190)
-	cooldownLabel.Text = "Ready"
+	cooldownLabel.Position = UDim2.fromScale(0, 0)
+	cooldownLabel.Size = UDim2.fromScale(1, 1)
+	cooldownLabel.Font = Enum.Font.GothamBold
+	cooldownLabel.TextSize = 20
+	cooldownLabel.TextXAlignment = Enum.TextXAlignment.Center
+	cooldownLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+	cooldownLabel.Text = ""
+	cooldownLabel.ZIndex = 4
 	cooldownLabel.Parent = slotFrame
 
 	return {
@@ -257,11 +267,10 @@ local function create_ability_slot(index: number): AbilitySlotState
 		CooldownLabel = cooldownLabel,
 		Cooldown = ABILITY_DEFAULT_COOLDOWN,
 		ReadyAt = 0,
+		AOEType = nil,
+		AOESize = nil,
+		Range = nil,
 	}
-end
-
-for i = 1, ABILITY_SLOT_COUNT do
-	abilitySlots[i] = create_ability_slot(i)
 end
 
 local function refresh_camera(): ()
@@ -269,7 +278,6 @@ local function refresh_camera(): ()
 	if currentCamera then
 		camera = currentCamera
 		lastCameraCFrame = currentCamera.CFrame
-
 		if viewmodelFolder then
 			viewmodelFolder.Parent = currentCamera
 		end
@@ -281,7 +289,6 @@ local function clamp_vector3_magnitude(value: Vector3, maxMagnitude: number): Ve
 	if magnitude > maxMagnitude and magnitude > 0 then
 		return value.Unit * maxMagnitude
 	end
-
 	return value
 end
 
@@ -290,16 +297,71 @@ local function clamp_vector2_magnitude(value: Vector2, maxMagnitude: number): Ve
 	if magnitude > maxMagnitude and magnitude > 0 then
 		return value.Unit * maxMagnitude
 	end
-
 	return value
+end
+
+local function get_camera_head(towerModel: Model, towerRoot: BasePart): BasePart
+	local head = towerModel:FindFirstChild("Head")
+	if head and head:IsA("BasePart") then
+		return head
+	end
+
+	local newHead = Instance.new("Part")
+	newHead.Name = "Head"
+	newHead.Size = Vector3.new(1, 1, 1)
+	newHead.Transparency = 1
+	newHead.CanCollide = false
+	newHead.CanTouch = false
+	newHead.CanQuery = false
+	newHead.Massless = true
+	newHead.CFrame = towerRoot.CFrame * CFrame.new(0, 1.5, 0)
+	newHead.Parent = towerModel
+
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = towerRoot
+	weld.Part1 = newHead
+	weld.Parent = newHead
+
+	return newHead
+end
+
+local function get_possession_focus_position(towerRoot: BasePart): Vector3
+	return towerRoot.Position + Vector3.new(0, POSSESSION_CAMERA_LOOK_HEIGHT, 0)
+end
+
+local function get_possession_behind_cframe(towerRoot: BasePart): CFrame
+	local focusPosition = get_possession_focus_position(towerRoot)
+	local lookVector = towerRoot.CFrame.LookVector
+	local behindPosition = focusPosition - (lookVector * POSSESSION_CAMERA_BEHIND_DISTANCE) + Vector3.new(0, POSSESSION_CAMERA_BEHIND_HEIGHT, 0)
+
+	return CFrame.lookAt(behindPosition, focusPosition)
+end
+
+local function get_possession_enter_cframe(towerModel: Model, towerRoot: BasePart): CFrame
+	local head = get_camera_head(towerModel, towerRoot)
+	local enterPosition = head.Position + Vector3.new(0, POSSESSION_CAMERA_ENTER_HEIGHT_OFFSET, 0)
+	local lookPosition = enterPosition + towerRoot.CFrame.LookVector
+
+	return CFrame.lookAt(enterPosition, lookPosition)
 end
 
 local function getAimPosition(): Vector3
 	local rayOrigin = camera.CFrame.Position
 	local rayDirection = camera.CFrame.LookVector * 2000
-
 	local raycastParams = RaycastParams.new()
-	raycastParams.FilterDescendantsInstances = {player.Character, currentlyPossessing, viewmodelFolder}
+
+	local filterList = {}
+	if player.Character then
+		table.insert(filterList, player.Character)
+	end
+	if currentlyPossessing then
+		table.insert(filterList, currentlyPossessing)
+	end
+	if viewmodelFolder then
+		table.insert(filterList, viewmodelFolder)
+	end
+
+	raycastParams.FilterDescendantsInstances = filterList
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 
 	local rayResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
@@ -310,7 +372,7 @@ local function getAimPosition(): Vector3
 	return rayOrigin + rayDirection
 end
 
-local function clearViewmodel(): ()
+local function clear_viewmodel(): ()
 	if viewmodelFolder then
 		viewmodelFolder:Destroy()
 		viewmodelFolder = nil
@@ -323,14 +385,59 @@ local function clearViewmodel(): ()
 	lastCameraCFrame = nil
 end
 
+local function cancel_targeting(): ()
+	targetingData.Active = false
+	targetingData.Slot = nil
+	targetingData.UIIndex = nil
+
+	if targetingData.Indicator then
+		targetingData.Indicator:Destroy()
+		targetingData.Indicator = nil
+	end
+end
+
+local function toggle_targeting(uiIndex: number, serverSlot: number?, slotData: AbilitySlotState): ()
+	if targetingData.Active and targetingData.UIIndex == uiIndex then
+		cancel_targeting()
+		return
+	end
+
+	if os.clock() < abilitySlots[uiIndex].ReadyAt then
+		return
+	end
+
+	cancel_targeting()
+
+	targetingData.Active = true
+	targetingData.UIIndex = uiIndex
+	targetingData.Slot = serverSlot
+	targetingData.MaxRange = slotData.Range or 20
+
+	local radius = slotData.AOESize or 10
+	local indicator = Instance.new("Part")
+	indicator.Name = "SplashIndicator"
+	indicator.Shape = Enum.PartType.Cylinder
+	indicator.Size = Vector3.new(0.5, radius * 2, radius * 2)
+	indicator.Orientation = Vector3.new(0, 0, 90)
+	indicator.Anchored = true
+	indicator.CanCollide = false
+	indicator.CanQuery = false
+	indicator.CanTouch = false
+	indicator.Transparency = 0.6
+	indicator.Color = Color3.fromRGB(0, 255, 255)
+	indicator.Material = Enum.Material.ForceField
+	indicator.Parent = workspace
+
+	targetingData.Indicator = indicator
+end
+
 local function is_seed_viewmodel_part(part: BasePart): boolean
 	local lowerName = string.lower(part.Name)
-
 	if VISIBLE_EXACT_NAMES[lowerName] then
 		return true
 	end
 
-	for _, token in ipairs(VISIBLE_NAME_TOKENS) do
+	for _, token in VISIBLE_NAME_TOKENS do
 		if string.find(lowerName, token, 1, true) then
 			return true
 		end
@@ -341,7 +448,6 @@ end
 
 local function is_blocked_body_part(part: BasePart): boolean
 	local lowerName = string.lower(part.Name)
-
 	if is_seed_viewmodel_part(part) then
 		return false
 	end
@@ -350,7 +456,7 @@ local function is_blocked_body_part(part: BasePart): boolean
 		return true
 	end
 
-	for _, token in ipairs(BLOCKED_BODY_TOKENS) do
+	for _, token in BLOCKED_BODY_TOKENS do
 		if string.find(lowerName, token, 1, true) then
 			return true
 		end
@@ -378,29 +484,23 @@ end
 
 local function get_parent_basepart(obj: Instance, rootModel: Model): BasePart?
 	local current = obj.Parent
-
 	while current and current ~= rootModel do
 		if current:IsA("BasePart") then
 			return current
 		end
-
 		current = current.Parent
 	end
-
 	return nil
 end
 
 local function has_visible_basepart_ancestor(obj: Instance, rootModel: Model, visibleParts: {[BasePart]: boolean}): boolean
 	local current = obj.Parent
-
 	while current and current ~= rootModel do
 		if current:IsA("BasePart") and visibleParts[current] then
 			return true
 		end
-
 		current = current.Parent
 	end
-
 	return false
 end
 
@@ -409,41 +509,30 @@ local function collect_visible_viewmodel_parts(model: Model): {[BasePart]: boole
 	local adjacency: {[BasePart]: {BasePart}} = {}
 	local queue: {BasePart} = {}
 
-	for _, obj in ipairs(model:GetDescendants()) do
+	for _, obj in model:GetDescendants() do
 		if obj:IsA("BasePart") and is_seed_viewmodel_part(obj) then
 			visibleParts[obj] = true
 			table.insert(queue, obj)
 		end
 	end
 
-	for _, obj in ipairs(model:GetDescendants()) do
-		if obj:IsA("Motor6D") or obj:IsA("Weld") then
-			add_part_link(adjacency, obj.Part0, obj.Part1)
-		elseif obj:IsA("WeldConstraint") then
+	for _, obj in model:GetDescendants() do
+		if obj:IsA("Motor6D") or obj:IsA("Weld") or obj:IsA("WeldConstraint") then
 			add_part_link(adjacency, obj.Part0, obj.Part1)
 		elseif obj:IsA("RigidConstraint") then
-			local attachment0 = obj.Attachment0
-			local attachment1 = obj.Attachment1
-
-			local parent0 = attachment0 and attachment0.Parent
-			local parent1 = attachment1 and attachment1.Parent
-
-			local part0 = parent0 and parent0:IsA("BasePart") and parent0 or nil
-			local part1 = parent1 and parent1:IsA("BasePart") and parent1 or nil
-
-			add_part_link(adjacency, part0, part1)
+			local part0 = obj.Attachment0 and obj.Attachment0.Parent
+			local part1 = obj.Attachment1 and obj.Attachment1.Parent
+			add_part_link(adjacency, part0 and part0:IsA("BasePart") and part0 or nil, part1 and part1:IsA("BasePart") and part1 or nil)
 		end
 	end
 
 	local queueIndex = 1
-
 	while queueIndex <= #queue do
 		local currentPart = queue[queueIndex]
 		queueIndex += 1
 
-		local neighbors = adjacency[currentPart]
-		if neighbors then
-			for _, neighbor in ipairs(neighbors) do
+		if adjacency[currentPart] then
+			for _, neighbor in adjacency[currentPart] do
 				if not visibleParts[neighbor] and not is_blocked_body_part(neighbor) then
 					visibleParts[neighbor] = true
 					table.insert(queue, neighbor)
@@ -456,59 +545,32 @@ local function collect_visible_viewmodel_parts(model: Model): {[BasePart]: boole
 end
 
 local function configure_viewmodel(model: Model): ()
-	for _, obj in ipairs(model:GetDescendants()) do
-		if obj:IsA("Script") or obj:IsA("LocalScript") or obj:IsA("FaceControls") then
+	for _, obj in model:GetDescendants() do
+		if obj:IsA("Script") or obj:IsA("LocalScript") or obj:IsA("FaceControls") or obj:IsA("ParticleEmitter") then
 			obj:Destroy()
 		end
 	end
 
 	local visibleParts = collect_visible_viewmodel_parts(model)
 
-	for _, obj in ipairs(model:GetDescendants()) do
+	for _, obj in model:GetDescendants() do
 		if obj:IsA("BasePart") then
-			local isVisible = visibleParts[obj]
 			local hasVisibleAncestor = has_visible_basepart_ancestor(obj, model, visibleParts)
-			local parentBasePart = get_parent_basepart(obj, model)
 
-			if parentBasePart and not hasVisibleAncestor then
+			if get_parent_basepart(obj, model) and not hasVisibleAncestor then
 				obj:Destroy()
 			else
 				obj.Anchored = false
 				obj.CanCollide = false
 				obj.CanTouch = false
 				obj.CanQuery = false
-				obj.Massless = true
 				obj.CastShadow = false
-				obj.LocalTransparencyModifier = 0
-
-				if isVisible or hasVisibleAncestor then
-					obj.Transparency = 0
-				else
-					obj.Transparency = 1
-				end
-			end
-		end
-	end
-
-	for _, obj in ipairs(model:GetDescendants()) do
-		if obj:IsA("Decal") or obj:IsA("Texture") then
-			local parent = obj.Parent
-
-			if parent and parent:IsA("BasePart") then
-				local isVisible = visibleParts[parent]
-				local hasVisibleAncestor = has_visible_basepart_ancestor(parent, model, visibleParts)
-
-				if isVisible or hasVisibleAncestor then
-					obj.Transparency = 0
-				else
-					obj.Transparency = 1
-				end
+				obj.Massless = true
+				obj.Transparency = (visibleParts[obj] or hasVisibleAncestor) and 0 or 1
 			end
 		elseif obj:IsA("Humanoid") then
 			obj.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 			obj.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
-			obj.NameDisplayDistance = 0
-			obj.HealthDisplayDistance = 0
 		end
 	end
 
@@ -520,7 +582,7 @@ local function configure_viewmodel(model: Model): ()
 end
 
 local function create_viewmodel(sourceModel: Model): ()
-	clearViewmodel()
+	clear_viewmodel()
 
 	viewmodelFolder = Instance.new("Folder")
 	viewmodelFolder.Name = "Viewmodel"
@@ -531,22 +593,20 @@ local function create_viewmodel(sourceModel: Model): ()
 	viewmodelModel.Parent = viewmodelFolder
 
 	configure_viewmodel(viewmodelModel)
-
 	currentViewmodelCFrame = camera.CFrame * VM_OFFSET
-	viewmodelSwayPosition = Vector3.zero
-	viewmodelSwayRotation = Vector2.zero
 	lastCameraCFrame = camera.CFrame
 end
 
-local function toggleCameraVFX(isVisible: boolean)
+local function toggle_camera_vfx(isVisible: boolean): ()
 	if not isVisible then
 		hiddenVFXParts = {}
-		for _, child in ipairs(camera:GetChildren()) do
+
+		for _, child in camera:GetChildren() do
 			if child:IsA("BasePart") then
 				table.insert(hiddenVFXParts, {instance = child, trans = child.Transparency})
 				child.Transparency = 1
 
-				for _, desc in ipairs(child:GetDescendants()) do
+				for _, desc in child:GetDescendants() do
 					if desc:IsA("BasePart") or desc:IsA("Decal") or desc:IsA("Texture") then
 						table.insert(hiddenVFXParts, {instance = desc, trans = desc.Transparency})
 						desc.Transparency = 1
@@ -555,36 +615,42 @@ local function toggleCameraVFX(isVisible: boolean)
 			end
 		end
 	else
-		for _, data in ipairs(hiddenVFXParts) do
+		for _, data in hiddenVFXParts do
 			if data.instance and data.instance.Parent then
 				data.instance.Transparency = data.trans
 			end
 		end
+
 		hiddenVFXParts = {}
 	end
 end
 
-local function hideAndCacheUIElements()
+local function hideAndCacheUIElements(): ()
 	cachedUIStates = {}
-	local targetUIs = {"Slots", "SelectionUi", "PhoneControls", "Controls"}
-	for _, name in ipairs(targetUIs) do
-		local ui = playerGui:FindFirstChild(name, true)
-		if ui and ui:IsA("GuiObject") then
+	local list = {
+		["Slots"] = true,
+		["SelectionUi"] = true,
+		["PhoneControls"] = true,
+		["Controls"] = true,
+	}
+
+	for _, ui in playerGui:GetDescendants() do
+		if list[ui.Name] and ui:IsA("GuiObject") then
 			table.insert(cachedUIStates, {element = ui, wasVisible = ui.Visible})
 			ui.Visible = false
 		end
 	end
 end
 
-local function restoreUIElements()
-	for _, data in ipairs(cachedUIStates) do
+local function restoreUIElements(): ()
+	for _, data in cachedUIStates do
 		if data.element and data.element.Parent then
 			data.element.Visible = data.wasVisible
 		end
 	end
+
 	cachedUIStates = {}
 end
-
 
 local function disconnect_upgrade_watchers(): ()
 	if upgradeChangedConnection then
@@ -598,30 +664,71 @@ local function disconnect_upgrade_watchers(): ()
 	end
 end
 
+local function read_numeric_upgrade_value(valueObject: Instance?): number?
+	if not valueObject then
+		return nil
+	end
+
+	if valueObject:IsA("IntValue") or valueObject:IsA("NumberValue") then
+		return valueObject.Value
+	end
+
+	if valueObject:IsA("StringValue") then
+		return tonumber(valueObject.Value)
+	end
+
+	return nil
+end
+
 local function get_tower_upgrade_level(towerModel: Model): number
+	local towerData = upgradesModule[towerModel.Name]
+	local maxUpgradeIndex = (towerData and towerData.Upgrades and #towerData.Upgrades) or 1
 	local config = towerModel:FindFirstChild("Config")
-	local upgradeValue = config and config:FindFirstChild("Upgrade")
-	local upgradeLevel = towerModel:GetAttribute("Upgrade") or (upgradeValue and upgradeValue:IsA("IntValue") and upgradeValue.Value) or 1
-	return math.max(1, upgradeLevel)
+
+	local rawUpgrade: number? = nil
+
+	if config then
+		rawUpgrade = read_numeric_upgrade_value(config:FindFirstChild("Upgrades"))
+	end
+
+	if rawUpgrade == nil then
+		local attrUpgrades = towerModel:GetAttribute("Upgrades")
+		if attrUpgrades ~= nil then
+			rawUpgrade = tonumber(attrUpgrades)
+		end
+	end
+
+	if rawUpgrade == nil and config then
+		rawUpgrade = read_numeric_upgrade_value(config:FindFirstChild("Upgrade"))
+	end
+
+	if rawUpgrade == nil then
+		local attrUpgrade = towerModel:GetAttribute("Upgrade")
+		if attrUpgrade ~= nil then
+			rawUpgrade = tonumber(attrUpgrade)
+		end
+	end
+
+	rawUpgrade = math.max(1, math.floor(rawUpgrade or 1))
+	local progressionIndex = math.clamp(rawUpgrade, 1, maxUpgradeIndex)
+
+	return progressionIndex
 end
 
 local function get_possession_abilities_from_tower(towerModel: Model): {{[string]: any}?}
 	local towerData = upgradesModule[towerModel.Name]
-	if not towerData or not towerData.Upgrades then
+	if not towerData or not towerData.Upgrades or not towerData.Upgrades[1] then
 		return {nil, nil}
 	end
 
-	local upgradeLevel = get_tower_upgrade_level(towerModel)
-	local firstUpgrade = towerData.Upgrades[1]
-	if not firstUpgrade then
-		return {nil, nil}
-	end
+	local unlockedUpgradeIndex = get_tower_upgrade_level(towerModel)
+	local basicAttackName = towerData.Upgrades[1].AttackName
 
-	local basicAttackName = firstUpgrade.AttackName
 	local attackProgression = {}
+	local abilityNames = {}
 
-	for index, upgradeData in ipairs(towerData.Upgrades) do
-		if index > upgradeLevel then
+	for index, upgradeData in towerData.Upgrades do
+		if index > unlockedUpgradeIndex then
 			break
 		end
 
@@ -629,48 +736,58 @@ local function get_possession_abilities_from_tower(towerModel: Model): {{[string
 		if attackName then
 			attackProgression[attackName] = {
 				Name = attackName,
-				Cooldown = upgradeData.Cooldown,
+				Cooldown = upgradeData.Cooldown or ABILITY_DEFAULT_COOLDOWN,
+				AOEType = upgradeData.AOEType,
+				AOESize = upgradeData.AOESize,
+				Range = upgradeData.Range,
 			}
-		end
-	end
 
-	local abilityNames = {}
-	for _, upgradeData in ipairs(towerData.Upgrades) do
-		local attackName = upgradeData.AttackName
-		if attackName and attackName ~= basicAttackName and attackProgression[attackName] then
-			if not table.find(abilityNames, attackName) then
+			if attackName ~= basicAttackName and not table.find(abilityNames, attackName) then
 				table.insert(abilityNames, attackName)
 			end
 		end
 	end
 
-	return {
-		abilityNames[1] and attackProgression[abilityNames[1]] or nil,
-		abilityNames[2] and attackProgression[abilityNames[2]] or nil,
-	}
+	local ability1 = abilityNames[1] and attackProgression[abilityNames[1]] or nil
+	local ability2 = abilityNames[2] and attackProgression[abilityNames[2]] or nil
+
+	return {ability1, ability2}
 end
 
-local configure_ability_hud: (({[string]: any}?) -> ())? = nil
-
 local function refresh_possession_ability_hud_from_tower(): ()
-	if not currentlyPossessing then
+	if not currentlyPossessing or not configure_ability_hud then
 		return
 	end
 
-	if configure_ability_hud then
-		configure_ability_hud({
-			Abilities = get_possession_abilities_from_tower(currentlyPossessing),
-		})
+	local towerData = upgradesModule[currentlyPossessing.Name]
+	if not towerData or not towerData.Upgrades or not towerData.Upgrades[1] then
+		configure_ability_hud(nil)
+		return
 	end
+
+	local baseUpgrade = towerData.Upgrades[1]
+	local abilities = get_possession_abilities_from_tower(currentlyPossessing)
+
+	local hudData = {
+		Basic = {
+			Name = baseUpgrade.AttackName or "Attack",
+			Cooldown = baseUpgrade.Cooldown or ABILITY_DEFAULT_COOLDOWN,
+			AOEType = baseUpgrade.AOEType,
+			AOESize = baseUpgrade.AOESize,
+			Range = baseUpgrade.Range,
+		},
+		Abilities = abilities,
+	}
+
+	configure_ability_hud(hudData)
 end
 
 local function reset_ability_hud(): ()
-	for index, slot in pairs(abilitySlots) do
-		slot.NameLabel.Text = string.format("Ability %d", index)
+	for _, slot in abilitySlots do
 		slot.Cooldown = ABILITY_DEFAULT_COOLDOWN
 		slot.ReadyAt = 0
 		slot.CooldownFill.Size = UDim2.fromScale(1, 0)
-		slot.CooldownLabel.Text = "Ready"
+		slot.CooldownLabel.Text = ""
 		slot.Frame.Visible = false
 	end
 end
@@ -682,44 +799,41 @@ configure_ability_hud = function(possessionData: {[string]: any}?): ()
 		return
 	end
 
-	local abilities = possessionData.Abilities
-	if typeof(abilities) ~= "table" then
-		return
-	end
-
-	for index = 1, ABILITY_SLOT_COUNT do
-		local slotData = abilities[index]
+	local function setup_slot(index: number, data: {[string]: any}?, defaultKey: string): ()
 		local slot = abilitySlots[index]
-		if slotData and slot then
-			local name = slotData.Name
-			local cooldown = slotData.Cooldown
-
-			slot.NameLabel.Text = (typeof(name) == "string" and name ~= "") and name or string.format("Ability %d", index)
-			slot.Cooldown = (typeof(cooldown) == "number" and cooldown > 0) and cooldown or ABILITY_DEFAULT_COOLDOWN
+		if data and slot then
+			slot.NameLabel.Text = (typeof(data.Name) == "string" and data.Name ~= "") and data.Name or ("Attack " .. index)
+			slot.Cooldown = (typeof(data.Cooldown) == "number" and data.Cooldown > 0) and data.Cooldown or ABILITY_DEFAULT_COOLDOWN
+			slot.KeyLabel.Text = defaultKey
+			slot.AOEType = data.AOEType
+			slot.AOESize = data.AOESize
+			slot.Range = data.Range
 			slot.Frame.Visible = true
 		end
 	end
+
+	setup_slot(1, possessionData.Basic, "M1")
+
+	if possessionData.Abilities then
+		setup_slot(2, possessionData.Abilities[1], "1")
+		setup_slot(3, possessionData.Abilities[2], "2")
+	end
 end
 
-local function trigger_ability_cooldown(slotIndex: number): boolean
-	local slot = abilitySlots[slotIndex]
-	if not slot or not slot.Frame.Visible then
+local function trigger_ability_cooldown(uiSlotIndex: number): boolean
+	local slot = abilitySlots[uiSlotIndex]
+	if not slot or not slot.Frame.Visible or os.clock() < slot.ReadyAt then
 		return false
 	end
 
-	local now = os.clock()
-	if now < slot.ReadyAt then
-		return false
-	end
-
-	slot.ReadyAt = now + slot.Cooldown
+	slot.ReadyAt = os.clock() + slot.Cooldown
 	slot.CooldownFill.Size = UDim2.fromScale(1, 1)
-	slot.CooldownLabel.Text = string.format("%.1fs", slot.Cooldown)
 
 	local tween = TweenService:Create(slot.CooldownFill, TweenInfo.new(slot.Cooldown, Enum.EasingStyle.Linear), {
-		Size = UDim2.fromScale(1, 0)
+		Size = UDim2.fromScale(1, 0),
 	})
 	tween:Play()
+
 	return true
 end
 
@@ -728,10 +842,7 @@ local function keep_tower_above_ground(towerRoot: BasePart): ()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
 	raycastParams.FilterDescendantsInstances = {towerRoot.Parent}
 
-	local rayOrigin = towerRoot.Position + Vector3.new(0, 3, 0)
-	local rayDirection = Vector3.new(0, -50, 0)
-	local hit = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
-
+	local hit = workspace:Raycast(towerRoot.Position + Vector3.new(0, 3, 0), Vector3.new(0, -50, 0), raycastParams)
 	if hit then
 		local minY = hit.Position.Y + (towerRoot.Size.Y * 0.5) + GROUND_CLEARANCE_HEIGHT
 		if towerRoot.Position.Y < minY then
@@ -740,30 +851,39 @@ local function keep_tower_above_ground(towerRoot: BasePart): ()
 	end
 end
 
-local function play_possession_camera_animation(towerRoot: BasePart): ()
+local function play_possession_camera_animation(towerModel: Model, towerRoot: BasePart): ()
 	local originalCameraType = camera.CameraType
 	camera.CameraType = Enum.CameraType.Scriptable
 	UserInputService.MouseIconEnabled = false
+
+	local startCamCFrame = camera.CFrame
+	local behindCamCFrame = get_possession_behind_cframe(towerRoot)
+	local enterCamCFrame = get_possession_enter_cframe(towerModel, towerRoot)
+
+	local firstStageDuration = POSSESSION_CAMERA_ANIM_DURATION * 0.55
+	local secondStageDuration = POSSESSION_CAMERA_ANIM_DURATION * 0.45
 
 	local elapsed = 0
 	while elapsed < POSSESSION_CAMERA_ANIM_DURATION and currentlyPossessing and towerRoot.Parent do
 		local dt = RunService.RenderStepped:Wait()
 		elapsed += dt
-		local alpha = math.clamp(elapsed / POSSESSION_CAMERA_ANIM_DURATION, 0, 1)
-		local easedAlpha = TweenService:GetValue(alpha, Enum.EasingStyle.Cubic, Enum.EasingDirection.In)
 
-		local currentPos = towerRoot.Position
-		local lookDir = towerRoot.CFrame.LookVector
-		local frontPos = currentPos + (lookDir * 6) + Vector3.new(0, 1, 0)
-		local startCamCFrame = CFrame.lookAt(frontPos, currentPos + Vector3.new(0, 1.5, 0))
-		local targetCamCFrame = towerRoot.CFrame * CFrame.new(0, 1.5, 0)
-
-		camera.CFrame = startCamCFrame:Lerp(targetCamCFrame, easedAlpha)
+		if elapsed <= firstStageDuration then
+			local alpha = math.clamp(elapsed / firstStageDuration, 0, 1)
+			local easedAlpha = TweenService:GetValue(alpha, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+			camera.CFrame = startCamCFrame:Lerp(behindCamCFrame, easedAlpha)
+		else
+			local alpha = math.clamp((elapsed - firstStageDuration) / secondStageDuration, 0, 1)
+			local easedAlpha = TweenService:GetValue(alpha, Enum.EasingStyle.Cubic, Enum.EasingDirection.InOut)
+			camera.CFrame = behindCamCFrame:Lerp(enterCamCFrame, easedAlpha)
+		end
 	end
 
+	camera.CFrame = enterCamCFrame
 	camera.CameraType = originalCameraType
 end
 
+------------------//MAIN FUNCTIONS
 local function on_possess_confirm(towerModel: Model?, state: boolean, possessionData: {[string]: any}?): ()
 	if isAnimatingCamera then
 		return
@@ -772,51 +892,49 @@ local function on_possess_confirm(towerModel: Model?, state: boolean, possession
 	if state and towerModel then
 		isAnimatingCamera = true
 		inCommandFrame.Visible = true
+
+		-- Salva a posição exata da câmera do jogador
 		originalCameraCFrame = camera.CFrame
+
 		currentlyPossessing = towerModel
 		currentEnergy = MAX_ENERGY
 
 		hideAndCacheUIElements()
+		toggle_camera_vfx(false)
 
 		local hrp = towerModel:FindFirstChild("HumanoidRootPart")
 		local humanoid = towerModel:FindFirstChild("Humanoid")
+
 		if hrp and hrp:IsA("BasePart") then
 			keep_tower_above_ground(hrp)
+			get_camera_head(towerModel, hrp)
+
+			hrp.Anchored = true
+			hrp.AssemblyLinearVelocity = Vector3.zero
+
+			if humanoid and humanoid:IsA("Humanoid") then
+				humanoid:ChangeState(Enum.HumanoidStateType.Physics)
+			end
+
+			play_possession_camera_animation(towerModel, hrp)
+
 			hrp.Anchored = false
-			hrp.AssemblyLinearVelocity = Vector3.new(0, 0.01, 0)
+
 			if humanoid and humanoid:IsA("Humanoid") then
 				humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
 			end
-			play_possession_camera_animation(hrp)
 		end
 
-		local head = towerModel:FindFirstChild("Head")
-		if not head then
-			head = Instance.new("Part")
-			head.Name = "Head"
-			head.Size = Vector3.new(1, 1, 1)
-			head.Transparency = 1
-			head.CanCollide = false
-			head.Massless = true
-
-			if hrp then
-				head.CFrame = hrp.CFrame * CFrame.new(0, 1.5, 0)
-				local weld = Instance.new("WeldConstraint")
-				weld.Part0 = hrp
-				weld.Part1 = head
-				weld.Parent = head
-			end
-			head.Parent = towerModel
-		end
-
-		if humanoid then
+		if humanoid and humanoid:IsA("Humanoid") then
 			camera.CameraSubject = humanoid
 		end
 
+		oldMinZoom = player.CameraMinZoomDistance
 		oldMaxZoom = player.CameraMaxZoomDistance
-		player.CameraMode = Enum.CameraMode.LockFirstPerson
+
 		player.CameraMinZoomDistance = 0.5
 		player.CameraMaxZoomDistance = 0.5
+		camera.CameraType = Enum.CameraType.Custom
 
 		UserInputService.MouseIconEnabled = false
 		crosshairGui.Enabled = true
@@ -825,19 +943,45 @@ local function on_possess_confirm(towerModel: Model?, state: boolean, possession
 		refresh_possession_ability_hud_from_tower()
 
 		disconnect_upgrade_watchers()
-		upgradeChangedConnection = towerModel:GetAttributeChangedSignal("Upgrade"):Connect(refresh_possession_ability_hud_from_tower)
+
 		local config = towerModel:FindFirstChild("Config")
-		local upgradeValue = config and config:FindFirstChild("Upgrade")
-		if upgradeValue and upgradeValue:IsA("IntValue") then
-			configUpgradeChangedConnection = upgradeValue.Changed:Connect(refresh_possession_ability_hud_from_tower)
+
+		if towerModel:GetAttribute("Upgrades") ~= nil then
+			upgradeChangedConnection = towerModel:GetAttributeChangedSignal("Upgrades"):Connect(refresh_possession_ability_hud_from_tower)
+		elseif towerModel:GetAttribute("Upgrade") ~= nil then
+			upgradeChangedConnection = towerModel:GetAttributeChangedSignal("Upgrade"):Connect(refresh_possession_ability_hud_from_tower)
+		end
+
+		if config then
+			local upgradesValue = config:FindFirstChild("Upgrades")
+			if upgradesValue and (upgradesValue:IsA("IntValue") or upgradesValue:IsA("NumberValue") or upgradesValue:IsA("StringValue")) then
+				configUpgradeChangedConnection = upgradesValue.Changed:Connect(refresh_possession_ability_hud_from_tower)
+			else
+				local upgradeValue = config:FindFirstChild("Upgrade")
+				if upgradeValue and (upgradeValue:IsA("IntValue") or upgradeValue:IsA("NumberValue") or upgradeValue:IsA("StringValue")) then
+					configUpgradeChangedConnection = upgradeValue.Changed:Connect(refresh_possession_ability_hud_from_tower)
+				end
+			end
 		end
 
 		ContextActionService:BindActionAtPriority(
 			BLOCK_ACTION_NAME,
-			function() return Enum.ContextActionResult.Sink end,
+			function()
+				return Enum.ContextActionResult.Sink
+			end,
 			false,
 			INPUT_PRIORITY,
-			Enum.KeyCode.Three, Enum.KeyCode.Four, Enum.KeyCode.Five, Enum.KeyCode.Six, Enum.KeyCode.Q, Enum.KeyCode.R, Enum.KeyCode.X, Enum.KeyCode.LeftControl, Enum.KeyCode.RightControl, Enum.KeyCode.LeftShift, Enum.KeyCode.RightShift
+			Enum.KeyCode.Three,
+			Enum.KeyCode.Four,
+			Enum.KeyCode.Five,
+			Enum.KeyCode.Six,
+			Enum.KeyCode.Q,
+			Enum.KeyCode.R,
+			Enum.KeyCode.X,
+			Enum.KeyCode.LeftControl,
+			Enum.KeyCode.RightControl,
+			Enum.KeyCode.LeftShift,
+			Enum.KeyCode.RightShift
 		)
 
 		create_viewmodel(towerModel)
@@ -846,19 +990,31 @@ local function on_possess_confirm(towerModel: Model?, state: boolean, possession
 		isAnimatingCamera = false
 		inCommandFrame.Visible = false
 		currentlyPossessing = nil
-
 		restoreUIElements()
+		cancel_targeting()
 
-		local character = player.Character
-		if character then
-			local humanoid = character:FindFirstChild("Humanoid")
-			if humanoid and humanoid:IsA("Humanoid") then
-				camera.CameraSubject = humanoid
-			end
-		end
-
+		-- Restaura o modo de câmera clássico
 		player.CameraMode = Enum.CameraMode.Classic
 		player.CameraMaxZoomDistance = oldMaxZoom
+
+		-- Força a câmera a se afastar para o padrão de terceira pessoa
+		local targetThirdPersonZoom = 12.5
+		if targetThirdPersonZoom > oldMaxZoom then
+			targetThirdPersonZoom = oldMaxZoom
+		end
+		player.CameraMinZoomDistance = targetThirdPersonZoom
+
+		-- Defer para voltar aos limites reais originais após o recálculo do Roblox
+		task.defer(function()
+			player.CameraMinZoomDistance = oldMinZoom
+		end)
+
+		camera.CameraType = Enum.CameraType.Custom
+
+		if player.Character and player.Character:FindFirstChild("Humanoid") then
+			-- Volta o foco para o personagem e deixa o sistema nativo cuidar da transição limpa
+			camera.CameraSubject = player.Character.Humanoid
+		end
 
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 		UserInputService.MouseIconEnabled = true
@@ -868,20 +1024,8 @@ local function on_possess_confirm(towerModel: Model?, state: boolean, possession
 		disconnect_upgrade_watchers()
 
 		ContextActionService:UnbindAction(BLOCK_ACTION_NAME)
-
-		toggleCameraVFX(true)
-		clearViewmodel()
-
-		local currentMinZoom = player.CameraMinZoomDistance
-		player.CameraMinZoomDistance = 15
-
-		task.delay(0.05, function()
-			player.CameraMinZoomDistance = currentMinZoom
-
-			if originalCameraCFrame then
-				camera.CFrame = originalCameraCFrame
-			end
-		end)
+		toggle_camera_vfx(true)
+		clear_viewmodel()
 	end
 end
 
@@ -902,63 +1046,93 @@ local function on_possess_action(_: string, inputState: Enum.UserInputState, _: 
 	return Enum.ContextActionResult.Pass
 end
 
-local function fire_possession_attack(abilitySlot: number?): Enum.ContextActionResult
+local function fire_possession_attack(uiSlotIndex: number, serverSlotIndex: number?): Enum.ContextActionResult
 	if currentlyPossessing then
-		if abilitySlot and not trigger_ability_cooldown(abilitySlot) then
+		if not trigger_ability_cooldown(uiSlotIndex) then
 			return Enum.ContextActionResult.Sink
 		end
 
-		local targetPosition = getAimPosition()
-		shootEvent:FireServer(targetPosition, camera.CFrame.LookVector, abilitySlot)
+		shootEvent:FireServer(getAimPosition(), camera.CFrame.LookVector, serverSlotIndex)
 		return Enum.ContextActionResult.Sink
 	end
 
 	return Enum.ContextActionResult.Pass
 end
 
-local function on_shoot_action(_: string, inputState: Enum.UserInputState, _: InputObject): Enum.ContextActionResult
-	if inputState ~= Enum.UserInputState.Begin then
+local function on_shoot_action(_: string, state: Enum.UserInputState): Enum.ContextActionResult
+	if state ~= Enum.UserInputState.Begin or isAnimatingCamera then
 		return Enum.ContextActionResult.Pass
 	end
 
-	if isAnimatingCamera then
+	if targetingData.Active and currentlyPossessing then
+		if trigger_ability_cooldown(targetingData.UIIndex) then
+			shootEvent:FireServer(targetingData.Indicator.Position, camera.CFrame.LookVector, targetingData.Slot)
+		end
+		cancel_targeting()
 		return Enum.ContextActionResult.Sink
 	end
 
-	return fire_possession_attack(nil)
+	local slot = abilitySlots[1]
+	if slot and slot.Frame.Visible and slot.AOEType == "Splash" then
+		toggle_targeting(1, nil, slot)
+		return Enum.ContextActionResult.Sink
+	end
+
+	return fire_possession_attack(1, nil)
 end
 
-local function on_ability_one_action(_: string, inputState: Enum.UserInputState, _: InputObject): Enum.ContextActionResult
-	if inputState ~= Enum.UserInputState.Begin then
-		return Enum.ContextActionResult.Pass
-	end
-
-	if isAnimatingCamera then
+local function on_cancel_action(_: string, state: Enum.UserInputState): Enum.ContextActionResult
+	if state == Enum.UserInputState.Begin and targetingData.Active then
+		cancel_targeting()
 		return Enum.ContextActionResult.Sink
 	end
 
-	return fire_possession_attack(1)
+	return Enum.ContextActionResult.Pass
 end
 
-local function on_ability_two_action(_: string, inputState: Enum.UserInputState, _: InputObject): Enum.ContextActionResult
-	if inputState ~= Enum.UserInputState.Begin then
+local function on_ability_one_action(_: string, state: Enum.UserInputState): Enum.ContextActionResult
+	if state ~= Enum.UserInputState.Begin or isAnimatingCamera then
 		return Enum.ContextActionResult.Pass
 	end
 
-	if isAnimatingCamera then
+	local slot = abilitySlots[2]
+	if slot.Frame.Visible and slot.AOEType == "Splash" then
+		toggle_targeting(2, 1, slot)
 		return Enum.ContextActionResult.Sink
 	end
 
-	return fire_possession_attack(2)
+	return fire_possession_attack(2, 1)
+end
+
+local function on_ability_two_action(_: string, state: Enum.UserInputState): Enum.ContextActionResult
+	if state ~= Enum.UserInputState.Begin or isAnimatingCamera then
+		return Enum.ContextActionResult.Pass
+	end
+
+	local slot = abilitySlots[3]
+	if slot.Frame.Visible and slot.AOEType == "Splash" then
+		toggle_targeting(3, 2, slot)
+		return Enum.ContextActionResult.Sink
+	end
+
+	return fire_possession_attack(3, 2)
 end
 
 local function on_play_vfx(towerModel: Model, moduleName: string, attackName: string, hitPosition: Vector3): ()
 	local humanoidRootPart = towerModel:FindFirstChild("HumanoidRootPart")
+
+	if currentlyPossessing == towerModel and viewmodelModel then
+		local vmHRP = viewmodelModel:FindFirstChild("HumanoidRootPart")
+		if vmHRP then
+			humanoidRootPart = vmHRP
+		end
+	end
+
 	if not humanoidRootPart or not humanoidRootPart:IsA("BasePart") then
 		return
 	end
 
-	for _, partName in ipairs({"TowerBasePart", "VFXTowerBasePart"}) do
+	for _, partName in {"TowerBasePart", "VFXTowerBasePart"} do
 		local basePart = towerModel:FindFirstChild(partName)
 		if basePart and basePart:IsA("BasePart") then
 			basePart.CFrame = humanoidRootPart.CFrame
@@ -971,7 +1145,6 @@ local function on_play_vfx(towerModel: Model, moduleName: string, attackName: st
 	local mockHRP = Instance.new("Part")
 	mockHRP.Name = "HumanoidRootPart"
 	mockHRP.Size = Vector3.new(2, 2, 2)
-	mockHRP.Position = hitPosition
 	mockHRP.CFrame = CFrame.new(hitPosition)
 	mockHRP.Anchored = true
 	mockHRP.Transparency = 1
@@ -979,19 +1152,32 @@ local function on_play_vfx(towerModel: Model, moduleName: string, attackName: st
 	mockHRP.Parent = mockTarget
 
 	mockTarget.PrimaryPart = mockHRP
-
-	local hum = Instance.new("Humanoid")
-	hum.Parent = mockTarget
+	Instance.new("Humanoid", mockTarget)
 
 	mockTarget.Parent = workspace:FindFirstChild("VFX") or workspace
 	Debris:AddItem(mockTarget, 5)
 
+	local vfxFunction = nil
+
 	if vfxLoader[moduleName] and type(vfxLoader[moduleName]) == "table" and vfxLoader[moduleName][attackName] then
+		vfxFunction = vfxLoader[moduleName][attackName]
+	else
+		for _, subModule in vfxLoader do
+			if type(subModule) == "table" and subModule[attackName] then
+				vfxFunction = subModule[attackName]
+				break
+			end
+		end
+	end
+
+	if vfxFunction then
 		task.spawn(function()
 			pcall(function()
-				vfxLoader[moduleName][attackName](humanoidRootPart, mockTarget)
+				vfxFunction(humanoidRootPart, mockTarget)
 			end)
 		end)
+	else
+		warn(string.format("[PossessionClient] O VFX '%s' não foi encontrado em nenhum módulo do VFX_Loader!", attackName))
 	end
 end
 
@@ -1000,18 +1186,13 @@ local function sync_viewmodel_motors(): ()
 		return
 	end
 
-	for _, obj in ipairs(currentlyPossessing:GetDescendants()) do
-		if obj:IsA("Motor6D") then
-			local motorParent = obj.Parent
+	for _, obj in currentlyPossessing:GetDescendants() do
+		if obj:IsA("Motor6D") and obj.Parent then
+			local vmPart = viewmodelModel:FindFirstChild(obj.Parent.Name, true)
+			local vmMotor = vmPart and vmPart:FindFirstChild(obj.Name)
 
-			if motorParent then
-				local vmPart = viewmodelModel:FindFirstChild(motorParent.Name, true)
-				if vmPart then
-					local vmMotor = vmPart:FindFirstChild(obj.Name)
-					if vmMotor and vmMotor:IsA("Motor6D") then
-						vmMotor.Transform = obj.Transform
-					end
-				end
+			if vmMotor and vmMotor:IsA("Motor6D") then
+				vmMotor.Transform = obj.Transform
 			end
 		end
 	end
@@ -1020,13 +1201,11 @@ end
 local function on_render_step(deltaTime: number): ()
 	if currentlyPossessing and not isAnimatingCamera then
 		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
-		toggleCameraVFX(false)
 
 		if DRAIN_RATE <= 0 then
 			currentEnergy = MAX_ENERGY
 		else
 			currentEnergy = math.max(0, currentEnergy - (DRAIN_RATE * deltaTime))
-
 			if currentEnergy <= 0 then
 				possessEvent:FireServer(nil)
 				currentlyPossessing = nil
@@ -1038,13 +1217,13 @@ local function on_render_step(deltaTime: number): ()
 
 	percentLabel.Text = math.floor(currentEnergy) .. "%"
 
-	for _, slot in pairs(abilitySlots) do
+	for _, slot in abilitySlots do
 		if slot.Frame.Visible then
 			local remaining = math.max(0, slot.ReadyAt - os.clock())
 			if remaining > 0 then
-				slot.CooldownLabel.Text = string.format("%.1fs", remaining)
+				slot.CooldownLabel.Text = string.format("%.1f", remaining)
 			else
-				slot.CooldownLabel.Text = "Ready"
+				slot.CooldownLabel.Text = ""
 			end
 		end
 	end
@@ -1052,85 +1231,71 @@ local function on_render_step(deltaTime: number): ()
 	if currentlyPossessing and not isAnimatingCamera then
 		local humanoid = currentlyPossessing:FindFirstChild("Humanoid")
 		if humanoid and humanoid:IsA("Humanoid") then
-			local moveVector = controls:GetMoveVector()
-			humanoid:Move(moveVector, true)
+			humanoid:Move(controls:GetMoveVector(), true)
 		end
 	end
 
 	if viewmodelModel and viewmodelModel.PrimaryPart and not isAnimatingCamera then
 		local baseCFrame = camera.CFrame * VM_OFFSET
-		local deltaCFrame = CFrame.new()
-
-		if lastCameraCFrame then
-			deltaCFrame = lastCameraCFrame:ToObjectSpace(camera.CFrame)
-		end
-
+		local deltaCFrame = lastCameraCFrame and lastCameraCFrame:ToObjectSpace(camera.CFrame) or CFrame.new()
 		local deltaPosition = deltaCFrame.Position
-		local deltaPitch, deltaYaw, _ = deltaCFrame:ToOrientation()
+		local deltaPitch, deltaYaw = deltaCFrame:ToOrientation()
 
-		local targetSwayPosition = Vector3.new(
-			-deltaPosition.X,
-			-deltaPosition.Y,
-			deltaPosition.Z * 0.25
-		) * SWAY_POSITION_MULTIPLIER
+		local targetSwayPos = clamp_vector3_magnitude(
+			Vector3.new(-deltaPosition.X, -deltaPosition.Y, deltaPosition.Z * 0.25) * SWAY_POSITION_MULTIPLIER,
+			MAX_SWAY_POSITION
+		)
 
-		local targetSwayRotation = Vector2.new(
-			-deltaPitch,
-			-deltaYaw
-		) * SWAY_ROTATION_MULTIPLIER
-
-		targetSwayPosition = clamp_vector3_magnitude(targetSwayPosition, MAX_SWAY_POSITION)
-		targetSwayRotation = clamp_vector2_magnitude(targetSwayRotation, MAX_SWAY_ROTATION)
+		local targetSwayRot = clamp_vector2_magnitude(
+			Vector2.new(-deltaPitch, -deltaYaw) * SWAY_ROTATION_MULTIPLIER,
+			MAX_SWAY_ROTATION
+		)
 
 		local swayAlpha = 1 - math.exp(-SWAY_DAMPING * deltaTime)
+		viewmodelSwayPosition = viewmodelSwayPosition:Lerp(targetSwayPos, swayAlpha)
+		viewmodelSwayRotation = viewmodelSwayRotation:Lerp(targetSwayRot, swayAlpha)
 
-		viewmodelSwayPosition = viewmodelSwayPosition:Lerp(targetSwayPosition, swayAlpha)
-		viewmodelSwayRotation = viewmodelSwayRotation:Lerp(targetSwayRotation, swayAlpha)
-
-		currentViewmodelCFrame = baseCFrame
-			* CFrame.new(viewmodelSwayPosition)
-			* CFrame.Angles(viewmodelSwayRotation.X, viewmodelSwayRotation.Y, 0)
-
+		currentViewmodelCFrame = baseCFrame * CFrame.new(viewmodelSwayPosition) * CFrame.Angles(viewmodelSwayRotation.X, viewmodelSwayRotation.Y, 0)
 		viewmodelModel:PivotTo(currentViewmodelCFrame)
 		sync_viewmodel_motors()
 	end
 
 	lastCameraCFrame = camera.CFrame
+
+	if targetingData.Active and targetingData.Indicator and currentlyPossessing then
+		local aimPos = getAimPosition()
+		local towerHRP = currentlyPossessing:FindFirstChild("HumanoidRootPart")
+
+		if towerHRP and towerHRP:IsA("BasePart") then
+			local towerPos = towerHRP.Position
+			local flatTowerPos = Vector3.new(towerPos.X, aimPos.Y, towerPos.Z)
+			local dist = (aimPos - flatTowerPos).Magnitude
+
+			if dist > targetingData.MaxRange then
+				local dir = (aimPos - flatTowerPos).Unit
+				aimPos = flatTowerPos + (dir * targetingData.MaxRange)
+			end
+
+			aimPos = aimPos + Vector3.new(0, 0.2, 0)
+			targetingData.Indicator.CFrame = CFrame.new(aimPos) * CFrame.Angles(0, 0, math.rad(90))
+		end
+	end
+end
+
+------------------//INIT
+setup_ui()
+
+for i = 1, ABILITY_SLOT_COUNT do
+	abilitySlots[i] = create_ability_slot(i)
 end
 
 inCommandFrame.Visible = false
 
-ContextActionService:BindActionAtPriority(
-	POSSESS_ACTION_NAME,
-	on_possess_action,
-	false,
-	INPUT_PRIORITY,
-	POSSESS_KEY
-)
-
-ContextActionService:BindActionAtPriority(
-	SHOOT_ACTION_NAME,
-	on_shoot_action,
-	false,
-	INPUT_PRIORITY,
-	Enum.UserInputType.MouseButton1
-)
-
-ContextActionService:BindActionAtPriority(
-	ABILITY_ONE_ACTION_NAME,
-	on_ability_one_action,
-	false,
-	INPUT_PRIORITY,
-	Enum.KeyCode.One
-)
-
-ContextActionService:BindActionAtPriority(
-	ABILITY_TWO_ACTION_NAME,
-	on_ability_two_action,
-	false,
-	INPUT_PRIORITY,
-	Enum.KeyCode.Two
-)
+ContextActionService:BindActionAtPriority(POSSESS_ACTION_NAME, on_possess_action, false, INPUT_PRIORITY, POSSESS_KEY)
+ContextActionService:BindActionAtPriority(SHOOT_ACTION_NAME, on_shoot_action, false, INPUT_PRIORITY, Enum.UserInputType.MouseButton1)
+ContextActionService:BindActionAtPriority(CANCEL_ACTION_NAME, on_cancel_action, false, INPUT_PRIORITY, Enum.UserInputType.MouseButton2)
+ContextActionService:BindActionAtPriority(ABILITY_ONE_ACTION_NAME, on_ability_one_action, false, INPUT_PRIORITY, Enum.KeyCode.One)
+ContextActionService:BindActionAtPriority(ABILITY_TWO_ACTION_NAME, on_ability_two_action, false, INPUT_PRIORITY, Enum.KeyCode.Two)
 
 workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(refresh_camera)
 possessEvent.OnClientEvent:Connect(on_possess_confirm)

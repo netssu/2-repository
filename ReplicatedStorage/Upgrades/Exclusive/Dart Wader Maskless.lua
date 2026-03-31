@@ -1,3 +1,5 @@
+local module = {}
+
 return {
 	["Dart Wader Maskless"] = {
 		MaxUpgrades = 9,
@@ -14,7 +16,7 @@ return {
 			{Damage = 965, Range = 27.2, Cooldown = 6.95, AOEType = "Splash", Price = 5480, AOESize = 7.2, Type = "Ground", AttackName = "Force Slam", MultiDamageDelays = {0.85, 0.25, 0.25}, AnimName = "Attack2"},
 			{Damage = 1140, Range = 28.4, Cooldown = 6.7, AOEType = "Splash", Price = 6775, AOESize = 7.6, Type = "Ground", AttackName = "Force Slam", MultiDamageDelays = {0.85, 0.25, 0.25}, AnimName = "Attack2"},
 			{Damage = 1325, Range = 30.8, Cooldown = 6.45, AOEType = "Splash", Price = 8090, AOESize = 7.9, Type = "Ground", AttackName = "Force Slam", MultiDamageDelays = {0.85, 0.25, 0.25}, AnimName = "Attack2"},
-			{Damage = 1610, Range = 32.6, Cooldown = 6.2, AOEType = "Splash", Price = 9695, AOESize = 8, Type = "Ground", AttackName = "Force Slam", MultiDamageDelays = {0.85, 0.25, 0.25}, AnimName = "Attack3"},
+			{Damage = 1610, Range = 32.6, Cooldown = 6.2, AOEType = "Splash", Price = 9695, AOESize = 8, Type = "Ground", AttackName = "AOE Attack", MultiDamageDelays = {0.85, 0.25, 0.25}, AnimName = "Attack3"},
 		},
 		["Evolve"] = {
 			["EvolutionRequirement"] = {

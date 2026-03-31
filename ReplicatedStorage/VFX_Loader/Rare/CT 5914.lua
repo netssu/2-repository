@@ -11,17 +11,8 @@ local VFX = rs.VFX
 local VFX_Helper = require(rs.Modules.VFX_Helper)
 local GameSpeed = workspace.Info.GameSpeed
 
-local function emitParticles(particle: ParticleEmitter)
-	local delayTime = particle:GetAttribute("DelayTime") or 0
-	local emitCount = particle:GetAttribute("EmitCount") or particle.Rate
-
-	if delayTime > 0 then
-		task.delay(delayTime, function()
-			particle:Emit(emitCount)
-		end)
-	else
-		particle:Emit(emitCount)
-	end
+local function emitParticles(container)
+	VFX_Helper.EmitAllParticles(container)
 end
 
 local function canAttack(HRP, target)
@@ -48,13 +39,10 @@ module["Dual Wield Pistols"] = function(HRP, target)
 
 	vfxPart.CFrame = vfxCFrame
 	vfxPart.Parent = workspace.VFX
-	
+
 	UnitSoundEffectLib.playSound(HRP.Parent, "LaserGun2")
 
-	for i,v in vfxPart:GetDescendants() do
-		if not v:IsA("ParticleEmitter") then continue end
-		emitParticles(v)
-	end
+	emitParticles(vfxPart)
 
 	Debris:AddItem(vfxPart, 2)
 
@@ -64,6 +52,5 @@ module["Dual Wield Pistols"] = function(HRP, target)
 		HRP.Parent.Attacking.Value = false
 	end
 end
-
 
 return module

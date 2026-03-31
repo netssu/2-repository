@@ -22,17 +22,8 @@ local function connect(p0, p1, c0)
 	return weld
 end
 
-local function emitParticles(particle: ParticleEmitter)
-	local delayTime = particle:GetAttribute("DelayTime") or 0
-	local emitCount = particle:GetAttribute("EmitCount") or 10
-
-	if delayTime > 0 then
-		task.delay(delayTime, function()
-			particle:Emit(emitCount)
-		end)
-	else
-		particle:Emit(emitCount)
-	end
+local function emitParticles(container)
+	VFX_Helper.EmitAllParticles(container)
 end
 
 module["Force Choke"] = function(HRP, target)
@@ -43,7 +34,7 @@ module["Force Choke"] = function(HRP, target)
 
 	local MobName = target.Name
 	if not target:FindFirstChild('HumanoidRootPart') then return end
-	
+
 	local targetCF = target.HumanoidRootPart.CFrame
 	local Range = HRP.Parent.Config:WaitForChild("Range").Value
 	local startCFrame = HRP.CFrame
@@ -57,7 +48,7 @@ module["Force Choke"] = function(HRP, target)
 	if target then targetCF = target:WaitForChild("HumanoidRootPart").CFrame end
 	local Mob = if workspace.Info.TestingMode.Value then rs.Enemies.TestMap:FindFirstChildOfClass("Model"):Clone() else nil
 	if not workspace.Info.TestingMode.Value then
-		local folders  = StoryModeStats.Maps
+		local folders = StoryModeStats.Maps
 		for _, folder in folders do
 			for i, mob in rs.Enemies[folder]:GetChildren() do
 				if mob.Name == MobName then
@@ -75,9 +66,9 @@ module["Force Choke"] = function(HRP, target)
 	Mob.HumanoidRootPart.Anchored = true
 	local humanoid = Mob:FindFirstChildOfClass("Humanoid")
 	local animation = Folder:WaitForChild("Animation")
-	if humanoid  and animation then
+	if humanoid and animation then
 		local animTrack = humanoid:LoadAnimation(animation)
-		animTrack:Play() 
+		animTrack:Play()
 	end
 
 	local forceChoke = anikinFolder["Force Choke"]:Clone()
@@ -141,12 +132,8 @@ module["Force Throw"] = function(HRP, target)
 
 	throwFx.CFrame = HRP.CFrame
 	throwFx.Parent = workspace.VFX	
-	
-	for _, particle in throwFx:GetDescendants() do
-		if particle:IsA("ParticleEmitter") then
-			emitParticles(particle)
-		end
-	end
+
+	emitParticles(throwFx)
 
 	Debris:AddItem(throwFx, 1/speed)
 
@@ -160,14 +147,14 @@ module["Force Throw"] = function(HRP, target)
 	HRP.Parent.Attacking.Value = true
 
 	local pushDirection = (targetCF.Position-HRP.CFrame.Position).Unit
-	
+
 	local bodyVelocity = Instance.new("BodyVelocity")
 	bodyVelocity.Parent = Mob.HumanoidRootPart
 	bodyVelocity.Velocity = pushDirection * 40
 	bodyVelocity.MaxForce = Vector3.new(1,0,1) * 1000000
-	
+
 	warn('parented to the targets root part')
-	
+
 	Debris:AddItem(bodyVelocity, .2)
 
 	task.wait(.5)
@@ -180,12 +167,12 @@ end
 
 module["Dual Wield"] = function(HRP, target)
 	task.wait(.5)
-	
+
 	if not HRP or not HRP.Parent or not target or not target:FindFirstChild("HumanoidRootPart") then
 		--warn("rejecting dual wield")
 		return
 	end
-	
+
 	UnitSoundEffectLib.playSound(HRP.Parent, 'SaberSwing' .. tostring(math.random(1,2)))
 
 	local folder = VFX.Anakin.First
@@ -194,10 +181,7 @@ module["Dual Wield"] = function(HRP, target)
 	slash.CFrame = HRP.CFrame
 	slash.Parent = workspace.VFX
 
-	for _, particle in slash:GetDescendants() do
-		if not particle:IsA("ParticleEmitter") then continue end
-		emitParticles(particle)
-	end
+	emitParticles(slash)
 
 	Debris:AddItem(slash, 2)
 end

@@ -31,22 +31,22 @@ repeat
 		warn(Variables.CurrentRound)
 		warn(Variables.ActStats.Rounds)
 		warn('Game ended!')
-		
+
 		if info.Versus.Value then
 			print('Versus')
 			if info.WinningTeam.Value ~= 'RED' and info.WinningTeam.Value ~= 'BLUE' then
 				print('End of wave config, infinitely spawning big bosses until enemy dies')
 				local cancel = false
 				local death = Instance.new('BindableEvent')
-				
+
 				info.WinningTeam.Changed:Connect(function()
 					if info.GameOver.Value then
 						cancel = true
 						death:Fire()
 					end
 				end)
-				
-				
+
+
 				-- infinitely spawn enemies
 				task.spawn(function()
 					local health = 2500
@@ -58,16 +58,16 @@ repeat
 						health += linearBoost
 						health *= (1 + growthRate)
 						health = math.round(health)
-	
+
 						local wsp = 6
-						
+
 						local unitstats = {
 							unit = 'Wader Last Breath',
 							health = health,
 							speed = wsp,
 							money_reward = health * 0.1
 						}
-						
+
 						-- spawn enemy
 						mob.Spawn(
 							'Wader Last Breath',
@@ -82,7 +82,7 @@ repeat
 							nil,
 							'Blue'
 						)
-						
+
 						mob.Spawn(
 							'Wader Last Breath',
 							1,
@@ -96,19 +96,19 @@ repeat
 							nil,
 							'Red'
 						)
-						
-						
+
+
 						task.wait(3)
 					end
-					
+
 				end)
-				
+
 				death.Event:Wait()
 				cancel = true
 				-- break main loop and give rewards
 				break
 			end
-			
+
 			break
 		else
 			Warning:FireAllClients('[ROUND MODULE] xo1, uh oh this shouldnt be happening')
@@ -203,11 +203,14 @@ repeat
 
 	local waitCount = 1
 	if RunService:IsStudio() then waitCount = 0 end
-	
+
 	task.wait((Variables.ActStats.wave_rest_time/workspace.Info.GameSpeed.Value) * waitCount)
 	local bossDead = false
 	local isBoss = false
 	local isBossRush = false
+	local lastSpawnedMob = nil
+	local lastBlueSpawnedMob = nil
+	local lastRedSpawnedMob = nil
 
 	for _, roundinfo in round.wave do
 		if Variables.died then break end
@@ -223,16 +226,18 @@ repeat
 				local redMob
 
 				if Variables.infinity then
-					newMob = mob.Spawn(unitName, 1, Variables.map, nil, math.round((health*info.Mode.Value)*#Players:GetPlayers()), money, speed, roundinfo.is_boss,unitStats)
+					newMob = mob.Spawn(unitName, 1, Variables.map, lastSpawnedMob, math.round((health*info.Mode.Value)*#Players:GetPlayers()), money, speed, roundinfo.is_boss,unitStats)
+					lastSpawnedMob = newMob or lastSpawnedMob
 				else
-					task.spawn(function()
-						if not info.Versus.Value then
-							newMob = mob.Spawn(unitName, 1, Variables.map, nil, math.round((health+(health*round.wave_diff_scale)*info.Mode.Value)*#Players:GetPlayers()), money, speed, roundinfo.is_boss,unitStats,roundinfo.is_bossrush)
-						else
-							newMob = mob.Spawn(unitName, 1, Variables.map, nil, math.round((health+(health*round.wave_diff_scale)*info.Mode.Value)*#Players:GetPlayers()), money, speed, roundinfo.is_boss,unitStats,roundinfo.is_bossrush, 'Blue')
-							redMob = mob.Spawn(unitName, 1, Variables.map, nil, math.round((health+(health*round.wave_diff_scale)*info.Mode.Value)*#Players:GetPlayers()), money, speed, roundinfo.is_boss,unitStats,roundinfo.is_bossrush, 'Red')
-						end
-					end)
+					if not info.Versus.Value then
+						newMob = mob.Spawn(unitName, 1, Variables.map, lastSpawnedMob, math.round((health+(health*round.wave_diff_scale)*info.Mode.Value)*#Players:GetPlayers()), money, speed, roundinfo.is_boss,unitStats,roundinfo.is_bossrush)
+						lastSpawnedMob = newMob or lastSpawnedMob
+					else
+						newMob = mob.Spawn(unitName, 1, Variables.map, lastBlueSpawnedMob, math.round((health+(health*round.wave_diff_scale)*info.Mode.Value)*#Players:GetPlayers()), money, speed, roundinfo.is_boss,unitStats,roundinfo.is_bossrush, 'Blue')
+						redMob = mob.Spawn(unitName, 1, Variables.map, lastRedSpawnedMob, math.round((health+(health*round.wave_diff_scale)*info.Mode.Value)*#Players:GetPlayers()), money, speed, roundinfo.is_boss,unitStats,roundinfo.is_bossrush, 'Red')
+						lastBlueSpawnedMob = newMob or lastBlueSpawnedMob
+						lastRedSpawnedMob = redMob or lastRedSpawnedMob
+					end
 				end
 
 
@@ -310,15 +315,15 @@ repeat
 			end
 		else
 			local totalCount = #workspace.RedMobs:GetChildren() + #workspace.BlueMobs:GetChildren()
-			
+
 			if totalCount == 0 or count == 20 then
 				roundEnd = true
 			end
-			
+
 		end
 	until roundEnd
 	ReplicatedStorage.Events.SkipGui:FireAllClients(false)
-	
+
 
 	if Variables.infinity then
 		if Variables.CurrentRound == 50 then
@@ -396,7 +401,7 @@ repeat
 				amountToAdd *= 0.65
 				amountToAdd = math.round(amountToAdd)
 			end
-			
+
 			local gemToAdd = math.round(amountToAdd * (hasDoubleGem * GetPlayerBoost(player, "Gems")))
 
 			if workspace.Info.Difficulty.Value == 'Hard' and not workspace.Info.Infinity.Value then
@@ -436,22 +441,22 @@ repeat
 		end
 	else
 		for i, player in Players:GetPlayers() do			
-			
+
 			local unitCount = 0
 
 			unitCount = #workspace.Towers:GetChildren()
-			
+
 			local amountToAdd = 0
 			amountToAdd += info.World.Value
 
 			if info.Difficulty.Value == 'Hard' then
 				amountToAdd *= 1.2
 			end
-			
+
 			local actMultiplier = 1 + (0.02 * info.Level.Value)
-			
+
 			amountToAdd = math.round(amountToAdd * actMultiplier)
-			
+
 			if unitCount ~= 0 then
 				if not Variables.gemCounts[player] then
 					Variables.gemCounts[player] = 0
@@ -459,7 +464,7 @@ repeat
 
 				Variables.gemCounts[player] += amountToAdd
 			end
-			
+
 			player.Money.Value += round.wave_reward or math.min((500 * Variables.CurrentRound), 10000)
 			if #Players:GetPlayers() > 1 then
 				if player:FindFirstChild('Quest') then
@@ -477,7 +482,7 @@ repeat
 			QuestConfig.UpdateProgressAll(player, "ClearWavesMultiplayer", 1)
 
 		end
-	
+
 		QuestConfig.UpdateProgressAll(player, "ClearWaves", 1)
 
 		if Variables.infinity then

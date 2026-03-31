@@ -15,17 +15,8 @@ function cubicBezier(t, p0, p1, p2, p3)
 	return (1 - t)^3*p0 + 3*(1 - t)^2*t*p1 + 3*(1 - t)*t^2*p2 + t^3*p3
 end
 
-local function emit(particle: ParticleEmitter)
-	local delayTime = particle:GetAttribute("DelayTime")
-	local emitCount = particle:GetAttribute("EmitCount") or particle.Rate
-	
-	if delayTime and delayTime > 0 then
-		task.delay(delayTime, function()
-			particle:Emit(emitCount)
-		end)
-	else
-		particle:Emit(emitCount)
-	end
+local function emitParticles(container)
+	VFX_Helper.EmitAllParticles(container)
 end
 
 module["Assault Rifle"] = function(HRP: BasePart, target: Model)
@@ -34,25 +25,22 @@ module["Assault Rifle"] = function(HRP: BasePart, target: Model)
 	local speed = GameSpeed.Value
 
 	task.wait(.2 / speed)
-	
+
 	if not HRP or not HRP.Parent then return end
 	HRP.Parent.Attacking.Value = true
-	
+
 	local assaultRifle = Folder["Assult Rifle"]:Clone()
 	assaultRifle.CFrame = HRP.CFrame * CFrame.new(0,0,-.5)
 	assaultRifle.Parent = vfxFolder
-	
+
 	UnitSoundEffectLib.playSound(HRP.Parent, 'Sniper' .. tostring(math.random(1,3)))
-	
-	for _, particle in assaultRifle:GetDescendants() do
-		if not particle:IsA("ParticleEmitter") then continue end
-		emit(particle)
-	end
-	
+
+	emitParticles(assaultRifle)
+
 	Debris:AddItem(assaultRifle, 2)
-	
+
 	task.wait(.2 / speed)
-	
+
 	if not HRP or not HRP.Parent then return end
 	HRP.Parent.Attacking.Value = false
 end
@@ -72,10 +60,7 @@ module["Sniper"] = function(HRP: BasePart, target: Model)
 	sniper.Parent = vfxFolder
 	UnitSoundEffectLib.playSound(HRP.Parent, 'Sniper' .. tostring(math.random(1,3)))
 
-	for _, particle in sniper:GetDescendants() do
-		if not particle:IsA("ParticleEmitter") then continue end
-		emit(particle)
-	end
+	emitParticles(sniper)
 
 	Debris:AddItem(sniper, 2)
 
@@ -100,10 +85,7 @@ module["Sniper Boom"] = function(HRP: BasePart, target: Model)
 	sniper.Parent = vfxFolder
 	UnitSoundEffectLib.playSound(HRP.Parent, 'Sniper' .. tostring(math.random(1,3)))
 
-	for _, particle in sniper:GetDescendants() do
-		if not particle:IsA("ParticleEmitter") then continue end
-		emit(particle)
-	end
+	emitParticles(sniper)
 
 	Debris:AddItem(sniper, 2)
 	UnitSoundEffectLib.playSound(HRP.Parent, 'Explosion')

@@ -1,107 +1,76 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
-
-local repStorage = game:GetService('ReplicatedStorage')
-local tweenService = game:GetService('TweenService')
+local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 
-local vfxFolder = repStorage.VFX
-local supperCommandoVfx = vfxFolder["SuperCommando"]
+local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
+local VFX = ReplicatedStorage.VFX
+local VFX_Helper = require(ReplicatedStorage.Modules.VFX_Helper)
+local GameSpeed = workspace.Info.GameSpeed
+local vfxFolder = workspace.VFX
 
 local module = {}
 
-local function emitParticles(particle: ParticleEmitter)
-	local delayTime = particle:GetAttribute("DelayTime") or 0
-	local emitCount = particle:GetAttribute("EmitCount") or particle.Rate
-
-	if delayTime > 0 then
-		task.delay(delayTime, function()
-			particle:Emit(emitCount)
-		end)
-	else
-		particle:Emit(emitCount)
-	end
-end
-
-local function connect(p0, p1, c0)
-	local weld = Instance.new("Weld")
-	weld.Part0 = p0
-	weld.Part1 = p1
-	weld.C0 = c0 or CFrame.new(0,0,0)
-	weld.Parent = p0	
-
-	return weld
-end
-
-local function getMag(pos1, pos2)
-	return (pos1 - pos2).Magnitude
-end
-
-local function tween(obj, length, details)
-	tweenService:Create(obj, TweenInfo.new(length), details):Play()
-end
-
 module["Turbo Laser"] = function(HRP, target)
-	task.wait(.25)
-	
-	local folder = vfxFolder["Elite Commando"]
-	local vfx = folder["Turbo Laser"]:Clone()
-	
-	if not HRP or not HRP.Parent then
-		return
-	end 
-	
-	HRP.Parent.Attacking.Value = true
-	
-	local enemyPos = Vector3.new(target.HumanoidRootPart.Position.X, HRP.Position.Y, target.HumanoidRootPart.Position.Z) 
-	local dir = (HRP.Position-enemyPos).Unit
-	
-	enemyPos = enemyPos - (dir * 1.7)
-	
-	local travelSpeed = 50
-	local timeToTravel = getMag(HRP.Position, enemyPos) / travelSpeed
-	
-	vfx.CFrame = HRP.CFrame
-	vfx.Parent = workspace.VFX
-	local weld = connect(vfx, HRP)
-	
-	local endPoint = vfx.EndPoint
-	
-	for _, instance in vfx:GetDescendants() do
-		if instance:IsA("Beam") then
-			instance.Enabled = true
-		elseif instance:IsA("ParticleEmitter") then
-			instance.Enabled = true
+	local Folder = VFX["Elite Commando"].First
+	local speed = GameSpeed.Value or 1
+	local characterModel = HRP.Parent
+
+	if not HRP or not characterModel then return end
+
+	local targetRoot = target:FindFirstChild("HumanoidRootPart")
+	if not targetRoot then return end
+
+	local AttackingValue = characterModel:FindFirstChild("Attacking")
+
+	task.wait(0.25 / speed)
+	if not HRP or not characterModel or not targetRoot then return end
+
+	if AttackingValue then AttackingValue.Value = true end
+
+	UnitSoundEffectLib.playSound(characterModel, "Blaster1", false)
+
+	local vfxContainer
+	for _, child in Folder:GetChildren() do
+		if not child:IsA("Sound") then
+			vfxContainer = child
+			break
 		end
 	end
-	
-	UnitSoundEffectLib.playSound(HRP.Parent, "Blaster1")
-	
-	task.delay(.5, function()
-		tween(vfx.EndPoint, timeToTravel, {WorldPosition = enemyPos})
-	end)
-	
-	task.wait(timeToTravel + 2)
-	
-	if HRP and HRP.Parent then
-		HRP.Parent.Attacking.Value = false
+
+	if not vfxContainer then 
+		if AttackingValue then AttackingValue.Value = false end
+		return 
 	end
-	
-	for _, instance in vfx:GetDescendants() do
-		if instance:IsA("Beam") then
-			instance.Enabled = false
-		elseif instance:IsA("ParticleEmitter") then
-			instance.Enabled = false
-		end
+
+	local startPos = HRP.Position
+	local targetPos = targetRoot.Position
+	local distance = (startPos - targetPos).Magnitude
+	local travelSpeed = 80 
+	local timeToTravel = distance / travelSpeed
+
+	local startCFrame = CFrame.lookAt(startPos, targetPos)
+	local mainVFX = VFX_Helper.CloneObject(
+		vfxContainer,
+		startCFrame,
+		vfxFolder,
+		(timeToTravel + 1.5) / speed, 
+		true
+	)
+
+	VFX_Helper.OnAllParticles(mainVFX)
+
+	local endCFrame = CFrame.lookAt(targetPos, targetPos + startCFrame.LookVector)
+	local tweenInfo = TweenInfo.new(timeToTravel / speed, Enum.EasingStyle.Linear)
+	local tween = TweenService:Create(mainVFX, tweenInfo, {CFrame = endCFrame})
+	tween:Play()
+
+	task.wait(timeToTravel / speed)
+
+	if mainVFX then
+		VFX_Helper.OffAllParticles(mainVFX)
 	end
-	
-	if weld then
-		weld:Destroy()
-	end
-	
-	if vfx then
-		vfx:Destroy()
-	end
+
+	if AttackingValue then AttackingValue.Value = false end
 end
 
 return module

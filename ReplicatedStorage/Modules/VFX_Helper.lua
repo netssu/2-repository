@@ -85,7 +85,7 @@ module.SoundPlay = function(HRP, sound:Sound, Time)
 end
 
 module.EmitAllParticles = function(container,quantity)
-	EmitModule:emit(container)
+	EmitModule.emit(container)
 end
 
 module.OnAllParticles = function(container, quantity)

@@ -1,54 +1,124 @@
+-- SERVICES
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
-
-local module = {}
-local rs = game:GetService("ReplicatedStorage")
-local Effects = rs.VFX
-local vfxFolder = workspace.VFX
-local TS = game:GetService("TweenService")
+local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
-local VFX = rs.VFX
-local VFX_Helper = require(rs.Modules.VFX_Helper)
-local GameSpeed = workspace.Info.GameSpeed
 
-module["332nd Trooper Attack"] = function(HRP, target)
-	local Folder = VFX.Epic["nd 332 Trooper"]
-	local enemypos = Vector3.new(target.HumanoidRootPart.Position.X,HRP.Position.Y,target.HumanoidRootPart.Position.Z)
-	local speed = GameSpeed.Value
+-- CONSTANTS
 
-	task.wait(0.84/speed)
-	if not HRP or not HRP.Parent then return end
+-- VARIABLES
+local VFX = ReplicatedStorage:WaitForChild("VFX")
+local epicFolder = VFX:WaitForChild("Epic")
+local trooperVFX = epicFolder:FindFirstChild("nd 332 Trooper") 
 
-	HRP.Parent.Attacking.Value = true
-	VFX_Helper.SoundPlay(HRP,Folder.Sound)
+local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules:WaitForChild("UnitSoundEffectLib"))
+local VFX_Helper = require(ReplicatedStorage.Modules:WaitForChild("VFX_Helper"))
+local GameSpeed = workspace:WaitForChild("Info"):WaitForChild("GameSpeed")
+local vfxFolder = workspace:FindFirstChild("VFX") or workspace
 
-	local lookAtPos = enemypos + Vector3.new(0, -1, 0)
+-- FUNCTIONS
+local module = {}
 
-	local Ball = Folder:WaitForChild("Part"):Clone()
-	Ball.CFrame = HRP.Parent["Right Arm"].Gun.Pos.CFrame
-	Ball.Position = HRP.Parent["Right Arm"].Gun.Pos.Position 
-	Ball.Parent = vfxFolder
-	Debris:AddItem(Ball,1/speed)
-	
-	UnitSoundEffectLib.playSound(HRP.Parent, 'Blaster1')
-	
-	task.wait(0.01/speed)
-	if not HRP or not HRP.Parent then return end
-	TS:Create(Ball,TweenInfo.new(0.1/speed,Enum.EasingStyle.Linear),{Position = lookAtPos}):Play()
-	task.wait(0.05/speed)
-	if not HRP or not HRP.Parent then return end
-	local explosion = Folder:WaitForChild("Explosionnnnns"):Clone()
-	explosion.Position = enemypos
-	explosion.Parent = vfxFolder
-	Debris:AddItem(explosion,2)
-	VFX_Helper.EmitAllParticles(explosion)
-	task.wait(0.05/speed)
-	if not HRP or not HRP.Parent then return end
-	VFX_Helper.OffAllParticles(Ball)
-	Ball.Transparency = 1
-	task.wait(1.2/speed)
-	if not HRP or not HRP.Parent then return end
-	HRP.Parent.Attacking.Value = false
+local function getStageEffect(folder, effectName)
+	if not folder then return nil end
+	return folder:FindFirstChild(effectName)
 end
 
+local function setupAndAnchorVFX(vfxInstance)
+	if not vfxInstance then return end
+
+	local parts = vfxInstance:IsA("BasePart") and {vfxInstance} or {}
+	for _, desc in vfxInstance:GetDescendants() do
+		if desc:IsA("BasePart") then
+			table.insert(parts, desc)
+		end
+	end
+
+	for _, part in ipairs(parts) do
+		part.Anchored = true
+		part.CanCollide = false
+		part.CanQuery = false
+	end
+end
+
+module["332nd Trooper Attack"] = function(HRP, target)
+	if not target or not target:FindFirstChild("HumanoidRootPart") then return end
+	if not HRP or not HRP.Parent then return end
+
+	local speed = GameSpeed.Value
+	local characterModel = HRP.Parent
+
+	local enemyPosRaw = target.HumanoidRootPart.Position
+	local enemypos = Vector3.new(enemyPosRaw.X, HRP.Position.Y, enemyPosRaw.Z)
+	local lookAtPos = enemypos + Vector3.new(0, -1, 0)
+
+	task.wait(0.84 / speed)
+	if not HRP or not HRP.Parent then return end
+
+	if characterModel:FindFirstChild("Attacking") then
+		characterModel.Attacking.Value = true
+	end
+
+	if trooperVFX and trooperVFX:FindFirstChild("Sound") then
+		VFX_Helper.SoundPlay(HRP, trooperVFX.Sound)
+	end
+
+	local rightArm = characterModel:FindFirstChild("Right Arm")
+	local gun = rightArm and rightArm:FindFirstChild("Gun")
+	local posPart = gun and gun:FindFirstChild("Pos")
+	local startPos = posPart and posPart.Position or HRP.Position
+
+	UnitSoundEffectLib.playSound(characterModel, 'Blaster1')
+
+	local effectTemplate = getStageEffect(trooperVFX, "nd 332 Trooper")
+
+	if effectTemplate then
+		local spawnCFrame = CFrame.lookAt(startPos, lookAtPos)
+		local clone = VFX_Helper.CloneObject(effectTemplate, spawnCFrame, vfxFolder, 2 / speed, false)
+
+		setupAndAnchorVFX(clone)
+
+		if clone:IsA("BasePart") then
+			clone.Transparency = 1
+		end
+
+		local lightning = clone:FindFirstChild("Lightning")
+		if lightning then
+			VFX_Helper.OnAllParticles(lightning)
+			VFX_Helper.EmitAllParticles(lightning)
+		end
+
+		task.delay(0.01 / speed, function()
+			if clone and clone.Parent then
+				local tween = TweenService:Create(clone, TweenInfo.new(0.1 / speed, Enum.EasingStyle.Linear), {Position = lookAtPos})
+				tween:Play()
+
+				tween.Completed:Connect(function()
+					if clone and clone.Parent then
+						if clone:IsA("BasePart") then
+							clone.Transparency = 1
+						end
+
+						if lightning then
+							VFX_Helper.OffAllParticles(lightning)
+						end
+
+						local pop = clone:FindFirstChild("Pop")
+						if pop then
+							VFX_Helper.EmitAllParticles(pop)
+						end
+					end
+				end)
+			end
+		end)
+	end
+
+	task.wait(1.2 / speed)
+	if not HRP or not HRP.Parent then return end
+
+	if characterModel:FindFirstChild("Attacking") then
+		characterModel.Attacking.Value = false
+	end
+end
+
+-- INIT
 return module

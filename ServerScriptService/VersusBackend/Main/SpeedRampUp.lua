@@ -3,10 +3,12 @@ local Players = game:GetService("Players")
 
 
 local Info = workspace.Info
+local BASIC_MOB_SPAWN_DELAY = 1
+local MIN_MOB_SPAWN_DELAY = 1
 --local GameStarted = Info.GameRunning
 
 --if not GameStarted.Value then
-	--GameStarted:GetPropertyChangedSignal('Value'):Wait()
+--GameStarted:GetPropertyChangedSignal('Value'):Wait()
 --end
 
 --if not Info.Versus.Value then return {} end
@@ -21,7 +23,7 @@ local function adjustSpeed(speedMultiplier)
 
 	workspace.Info.GameSpeed.Value = speedMultiplier
 	ReplicatedStorage.Events.ChangeSpeed:FireAllClients(`{speedMultiplier}x`, randomPlayer)
-	script:SetAttribute('MobSpawnDelay', 0.75/(speedMultiplier))
+	script:SetAttribute('MobSpawnDelay', math.max(MIN_MOB_SPAWN_DELAY, BASIC_MOB_SPAWN_DELAY / speedMultiplier))
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player:FindFirstChild('Speed') then
 			player.Speed.Value = speedMultiplier
@@ -36,7 +38,7 @@ warn('CONNECTED!')
 
 Wave.Changed:Connect(function()
 	speed = round2(1 + ((Wave.Value / 50) * 3))
-	
+
 	adjustSpeed(speed)
 end)
 

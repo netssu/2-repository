@@ -81,7 +81,7 @@ local AbilityStatus = ReplicatedStorage.States.AbilityStatus
 
 repeat task.wait() until player:FindFirstChild("DataLoaded")
 
-script.Parent.StartVote.VoteFrame.Yes.MouseButton1Click:Connect(function()
+script.Parent.StartVote.VoteFrame.Yes.Activated:Connect(function()
 	UIHandler.PlaySound("Skip")
 	if not 	script.Parent.StartVote.VoteFrame.Visible then
 		return
@@ -95,7 +95,7 @@ script.Parent.StartVote.VoteFrame.Yes.MouseButton1Click:Connect(function()
 	end)
 
 end)
-script.Parent.StartVote.VoteFrame.No.MouseButton1Click:Connect(function()
+script.Parent.StartVote.VoteFrame.No.Activated:Connect(function()
 	TweenService:Create(script.Parent.StartVote.VoteFrame,TweenInfo.new(0.5,Enum.EasingStyle.Exponential), {Position = UDim2.new(0.438, 0,-0.5, 0)}):Play()
 	task.wait(0.2)
 	script.Parent.StartVote.VoteFrame.Visible = false
@@ -131,7 +131,7 @@ end
 
 workspace.Info.GameSpeed.Changed:Connect(startCooldown)
 
-SpeedButton.MouseButton1Click:Connect(function()
+SpeedButton.Activated:Connect(function()
 	if workspace.Info.SpeedCD.Value == true then 
 		_G.Message("Please Wait Before Changing Speed!",Color3.fromRGB(255, 0, 0))
 		return
@@ -199,8 +199,8 @@ events.Client.StartGUI.OnClientEvent:Connect(function(Bool)
 	if info.Infinity.Value then
 		Frame.InformationFrame.ActName.Text = "Infinity Mode"
 	elseif info.Raid.Value then
-		print('[Raid Mode] world value:')
-		print(WorldValue)
+		--print('[Raid Mode] world value:')
+		--print(WorldValue)
 		Frame.InformationFrame.ActName.Text = "Act " .. info.Level.Value .. " - " ..  RaidModeStats.LevelName[WorldValue][info.Level.Value]
 	elseif info.Event.Value then
 		Frame.InformationFrame.ActName.Text = "Best Of Luck In Defeating This Foe."
@@ -922,13 +922,13 @@ local function toggleTowerInfo()
 
 			if UpgradeStats.Damage ~= nil then
 				UpgradeStats.Damage = math.round(UpgradeStats.Damage * levelboost) > 100 and (UpgradeStats.Damage * levelboost)  or ((UpgradeStats.Damage * levelboost) * 10) / 10
-				warn(math.round(UpgradeStats.Damage))
+--				warn(math.round(UpgradeStats.Damage))
 			end
 
 			local sellPrice = math.round(selectedTower.Config.Worth.Value / 2)
 			Upgrade.Sell.InfoText.Text = "Sell: " .. math.round(sellPrice) .. "$"
 
-			warn(Upgrade)
+	--		warn(Upgrade)
 
 			for _, stat in (hasMoneyUpgrade and {"Damage"}) or {"Damage","Range","Cooldown"} do
 				if not UpgradeData then
@@ -1076,8 +1076,8 @@ local function SpawnNewTower()
 end
 
 local function UpgradeFunc()
-	print(selectedTower)
-	print(IsOwner)
+--	print(selectedTower)
+--	print(IsOwner)
 
 	if selectedTower and IsOwner then
 		local upgradeTower = selectedTower:WaitForChild("Config").Upgrades.Value
@@ -1168,24 +1168,12 @@ local function SpectateFunc()
 	end
 end
 
-local function CommandFunc()
-	if selectedTower and IsOwner then
-		local currentPossession = player:GetAttribute("PossessingTower")
-
-		if currentPossession == selectedTower.Name then
-			possessEvent:FireServer(nil) 
-		else
-			possessEvent:FireServer(selectedTower) 
-		end
-	end
-end
 
 local KeyBinds = {
 	F = UpgradeFunc,
 	X = SellFunc,
 	R = TargetFunc,
 	V = SpectateFunc,
-	E = CommandFunc,
 
 	ButtonY = UpgradeFunc,
 	DPadLeft = TargetFunc,
@@ -1197,12 +1185,7 @@ local actions = {
 	Sell = SellFunc,
 	Target = TargetFunc,
 	Spectate = SpectateFunc,
-	Command = CommandFunc
 }
-
-for buttonName, func in actions do
-	Upgrade[buttonName].Activated:Connect(func)
-end
 
 local function onKeyBindPress(input, processed)
 	if processed or not Upgrade.Visible then
@@ -1210,12 +1193,12 @@ local function onKeyBindPress(input, processed)
 	end
 	for key, action in KeyBinds do
 		if input.KeyCode == Enum.KeyCode[key] then
-			print(input.KeyCode)
+			--print(input.KeyCode)
 			action()
 		end
 	end
 end
-print('Input began registered')
+--print('Input began registered')
 UserInputService.InputBegan:Connect(onKeyBindPress)
 
 local function CheckIfPc()
@@ -1477,7 +1460,7 @@ end
 
 
 local function DisplayEndScreen(status)
-	print('Display End Screen, Status:', status)
+--	print('Display End Screen, Status:', status)
 	--local frame = gui.EndScreen.VictoryFrame.Frame
 	local EndScreen = GlobalGUI.EndScreen.EndGame
 
@@ -1589,9 +1572,9 @@ local function DisplayEndScreen(status)
 	end
 
 	task.wait(1)
-	print(gui.Parent:FindFirstChild("HatchInfo"))
+	--print(gui.Parent:FindFirstChild("HatchInfo"))
 	if gui.Parent:FindFirstChild("HatchInfo") then 
-		print('found')
+		--print('found')
 		return
 	end
 
@@ -1689,8 +1672,8 @@ ReplicatedStorage.Events.Client.ReceiveRewards.OnClientEvent:Connect(function(re
 
 
 
-	print('Client rewards:')
-	warn(rewards)
+--	print('Client rewards:')
+--	warn(rewards)
 
 	for reward, amount in rewards do
 		if reward == "Items" then

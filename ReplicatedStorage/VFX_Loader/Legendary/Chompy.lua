@@ -1,54 +1,53 @@
+-- SERVICES
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
-
-local module = {}
-local rs = game:GetService("ReplicatedStorage")
-local Effects = rs.VFX
-local vfxFolder = workspace.VFX
-local TS = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
-local VFX = rs.VFX
-local VFX_Helper = require(rs.Modules.VFX_Helper)
+
+-- CONSTANTS
+local UnitSoundEffectLib = require(ReplicatedStorage.VFXModules.UnitSoundEffectLib)
+local VFX = ReplicatedStorage.VFX
+local VFX_Helper = require(ReplicatedStorage.Modules.VFX_Helper)
 local GameSpeed = workspace.Info.GameSpeed
+local vfxFolder = workspace.VFX
 
-module["Crossblast"] = function(HRP, target)
-	local speed = GameSpeed.Value
-	local x = 0.3
-	local Folder = VFX["Chompy"].First
-	local BallTemplate = Folder:WaitForChild("Ball")
-	local vfxFolder = workspace:WaitForChild("VFX")
+-- VARIABLES
+local module = {}
 
-	task.wait(1 / speed)
-	VFX_Helper.SoundPlay(HRP, Folder.First)
-
-	local HRPCF = HRP.CFrame
-	if not HRP or not HRP.Parent then return end
-
-	HRP.Parent.Attacking.Value = true
-	local Range = HRP.Parent.Config:WaitForChild("Range").Value
-	local targetPosition = (HRPCF * CFrame.new(0, 0, -Range)).Position
-
-	for i = 1, 3 do
-		if not HRP or not HRP.Parent then return end
-
-		local Ball = BallTemplate:Clone()
-		Ball.CFrame = HRP.Parent.Point.CFrame
-		Ball.Position = HRP.Parent.Point.Position
-		Ball.Parent = vfxFolder
-
-		Debris:AddItem(Ball, 1 / speed)
-		TS:Create(Ball, TweenInfo.new(0.13 / speed, Enum.EasingStyle.Linear), {
-			Position = targetPosition
-		}):Play()
-
-		UnitSoundEffectLib.playSound(HRP.Parent, 'BlasterBurst1')
-
-		task.wait(x / speed)
-	end
-
-	if not HRP or not HRP.Parent then return end
-	HRP.Parent.Attacking.Value = false
+-- FUNCTIONS
+local function emitParticles(container)
+	VFX_Helper.EmitAllParticles(container)
 end
 
+module["Crossblast"] = function(HRP, target)
+	local Folder = VFX["Chompy"].First
+	local speed = GameSpeed.Value or 1
+	local characterModel = HRP.Parent
 
+	if not HRP or not characterModel then return end
+
+	UnitSoundEffectLib.playSound(characterModel, "Sniper1", false)
+
+	local vfxContainer
+	for _, child in Folder:GetChildren() do
+		if not child:IsA("Sound") then
+			vfxContainer = child
+			break
+		end
+	end
+
+	task.wait(0.15 / speed)
+
+	if not HRP or not characterModel or not vfxContainer then return end
+
+	local emitUp = VFX_Helper.CloneObject(
+		vfxContainer,
+		HRP.CFrame,
+		vfxFolder,
+		3 / speed,
+		false
+	)
+
+	emitParticles(emitUp)
+end
+
+-- INIT
 return module
