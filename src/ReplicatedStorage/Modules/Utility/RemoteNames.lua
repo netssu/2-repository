@@ -4,6 +4,7 @@ local RemoteNames = {
 	getPlayerData = "GetPlayerData",
 	selectWorld = "SelectWorld",
 	train = "Train",
+	playerAction = "PlayerAction",
 	battleAction = "BattleAction",
 	questAction = "QuestAction",
 	updateSetting = "UpdateSetting",

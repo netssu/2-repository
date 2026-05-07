@@ -1,4 +1,4 @@
---!strict
+﻿--!strict
 ------------------//SERVICES
 local Players: Players = game:GetService("Players")
 local ReplicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,6 +14,7 @@ local replicatedModules: Folder = ReplicatedStorage:WaitForChild(MODULES_FOLDER_
 local utilityModules: Folder = replicatedModules:WaitForChild("Utility") :: Folder
 local dictionaryModules: Folder = replicatedModules:WaitForChild("Dictionary") :: Folder
 local gameModules: Folder = replicatedModules:WaitForChild("Game") :: Folder
+local uiModules: Folder = replicatedModules:WaitForChild("UI") :: Folder
 
 local ModuleCache = require(utilityModules:WaitForChild("ModuleCache") :: ModuleScript)
 local RemoteNames = ModuleCache.require(utilityModules:WaitForChild("RemoteNames") :: ModuleScript)
@@ -22,11 +23,12 @@ local UIDictionary = ModuleCache.require(dictionaryModules:WaitForChild("UIDicti
 local WorldDictionary = ModuleCache.require(dictionaryModules:WaitForChild("WorldDictionary") :: ModuleScript)
 local ExpFormula = ModuleCache.require(gameModules:WaitForChild("ExpFormula") :: ModuleScript)
 local GameConfig = ModuleCache.require(gameModules:WaitForChild("GameConfig") :: ModuleScript)
-local FlipCard = ModuleCache.require(utilityModules:WaitForChild("FlipCard") :: ModuleScript)
+local CharacterSelectionController = ModuleCache.require(uiModules:WaitForChild("CharacterSelectionController") :: ModuleScript)
 
 local getPlayerDataRemote: RemoteFunction = RemoteController.get_function(RemoteNames.getPlayerData)
 local selectWorldRemote: RemoteFunction = RemoteController.get_function(RemoteNames.selectWorld)
 local trainRemote: RemoteFunction = RemoteController.get_function(RemoteNames.train)
+local playerActionRemote: RemoteFunction = RemoteController.get_function(RemoteNames.playerAction)
 local battleActionRemote: RemoteFunction = RemoteController.get_function(RemoteNames.battleAction)
 local questActionRemote: RemoteFunction = RemoteController.get_function(RemoteNames.questAction)
 local updateSettingRemote: RemoteFunction = RemoteController.get_function(RemoteNames.updateSetting)
@@ -150,6 +152,14 @@ local function get_rank_name(level: number): string
 	return "Mortal IX"
 end
 
+local function get_cultivation_label(data: any): string
+	local cultivation = data.cultivation or {}
+	local realmIndex = cultivation.realmIndex or 1
+	local stage = cultivation.stage or 1
+	local realmNames = GameConfig.REALM_NAMES or {}
+	return (realmNames[realmIndex] or get_rank_name(data.level or 1)) .. " " .. tostring(stage)
+end
+
 local function get_mechanic_text(data: any): string
 	if data.world == "JJK" and data.jjk then
 		return "Cursed Energy: " .. tostring(math.floor(data.jjk.curseEnergy)) .. "%"
@@ -161,24 +171,17 @@ end
 local function render_resources(data: any): ()
 	local resources = data.resources or {}
 	local stamina   = resources.stamina   or 0
+	local maxStamina = resources.maxStamina or GameConfig.STAMINA_MAX
 	local food      = resources.food      or 0
 	local knowledge = resources.knowledge or 0
-	set_label_text(UIDictionary.labels.staminaValue,   "Stamina: "   .. format_number(stamina)   .. "/" .. tostring(GameConfig.RESOURCE_MAX))
+	local gold      = resources.gold      or 0
+	set_label_text(UIDictionary.labels.staminaValue,   "Stamina: "   .. format_number(stamina)   .. "/" .. tostring(maxStamina))
 	set_label_text(UIDictionary.labels.foodValue,      "Food: "      .. format_number(food)      .. "/" .. tostring(GameConfig.RESOURCE_MAX))
 	set_label_text(UIDictionary.labels.knowledgeValue, "Knowledge: " .. format_number(knowledge) .. "/" .. tostring(GameConfig.RESOURCE_MAX))
-	update_fill(UIDictionary.labels.staminaFill,   stamina,   GameConfig.RESOURCE_MAX)
+	set_label_text(UIDictionary.labels.goldValue,      "Gold: "      .. format_number(gold))
+	update_fill(UIDictionary.labels.staminaFill,   stamina,   maxStamina)
 	update_fill(UIDictionary.labels.foodFill,      food,      GameConfig.RESOURCE_MAX)
 	update_fill(UIDictionary.labels.knowledgeFill, knowledge, GameConfig.RESOURCE_MAX)
-end
-
-local function render_save_cards(data: any): ()
-	local world     = WorldDictionary.get_world(data.world)
-	local worldName = world and world.displayName or "Unborn"
-	local playtime  = data.progress and data.progress.playtimeSeconds or 0
-
-	set_label_text(UIDictionary.labels.saveOneInfo,   "World: " .. worldName .. "\nCultivation: " .. get_rank_name(data.level) .. "\nPVP Battles Won: " .. tostring(data.progress.pvpWins) .. "\nQuests Completed: " .. tostring(data.progress.questsCompleted) .. "\nWorld Souls: " .. tostring(data.worldSouls) .. "\nPlaytime: " .. tostring(playtime))
-	set_label_text(UIDictionary.labels.saveTwoInfo,   "World: Naruto\nCultivation: Mortal I\nStatus: Locked Foundation\nBuy Slot: Later")
-	set_label_text(UIDictionary.labels.saveThreeInfo, "World: JJK\nCultivation: Mortal I\nStatus: Locked Slot\nBuy Slot: Later")
 end
 
 local function render_stats_page(data: any): ()
@@ -187,18 +190,22 @@ local function render_stats_page(data: any): ()
 	local focusValue  = data.training and data.training.focus or 0
 	local stats       = data.stats
 	local bloodline   = data.world == "JJK" and "Bloodline: Chosen Vessel | Clan: None" or "Bloodline: Unknown | Clan: None"
+	local cultivation = data.cultivation or {}
+	local qi = cultivation.qi or 0
+	local qiRequired = cultivation.qiRequired or 100
+	local manual = cultivation.manual or "None"
 
 	set_label_text(UIDictionary.labels.worldValue,       world and world.displayName or "No World")
 	set_label_text(UIDictionary.labels.levelValue,       "Level " .. tostring(data.level))
 	set_label_text(UIDictionary.labels.expValue,         format_number(data.exp) .. " / " .. format_number(requiredExp) .. " EXP")
 	set_label_text(UIDictionary.labels.focusValue,       tostring(math.floor(focusValue)) .. "% Focus")
 	set_label_text(UIDictionary.labels.mechanicValue,    get_mechanic_text(data))
-	set_label_text(UIDictionary.labels.cultivationValue, "Cultivation: " .. get_rank_name(data.level))
+	set_label_text(UIDictionary.labels.cultivationValue, "Cultivation: " .. get_cultivation_label(data))
 	set_label_text(UIDictionary.labels.ageValue,         "Age: 18 Years, 6 Months, 10 Days")
 	set_label_text(UIDictionary.labels.lifespanValue,    "Lifespan: 100 Years, 4 Months, 2 Days")
-	set_label_text(UIDictionary.labels.qiValue,          "Current Qi: " .. format_number(data.exp))
-	set_label_text(UIDictionary.labels.qiNeededValue,    "Qi Needed: " .. format_number(requiredExp))
-	set_label_text(UIDictionary.labels.manualValue,      "Current Manual: None")
+	set_label_text(UIDictionary.labels.qiValue,          "Current Qi: " .. format_number(qi))
+	set_label_text(UIDictionary.labels.qiNeededValue,    "Qi Needed: " .. format_number(qiRequired))
+	set_label_text(UIDictionary.labels.manualValue,      "Current Manual: " .. manual)
 	set_label_text(UIDictionary.labels.bloodlineValue,   bloodline)
 	set_label_text(UIDictionary.labels.statsValue,       "Strength: " .. format_number(stats.atk) .. "\nVitality: " .. format_number(stats.hp) .. "\nSpeed: " .. format_number(stats.spd) .. "\nDefense: " .. format_number(stats.def) .. "\nLuck: " .. format_number(stats.luck))
 	update_fill(UIDictionary.labels.focusFill, focusValue, 100)
@@ -265,14 +272,13 @@ local function render_data(data: any): ()
 	currentData = data
 	if not data then return end
 
-	render_save_cards(data)
 	render_resources(data)
 	render_stats_page(data)
 	render_quests_page(data)
 	render_inventory_page(data)
 	render_static_pages(data)
 
-	if (data.world == nil or data.world == "") and not hasSelectedSave then
+	if not hasSelectedSave then
 		show_screen("CharacterSelection")
 	else
 		show_screen("Main")
@@ -280,30 +286,27 @@ local function render_data(data: any): ()
 	end
 end
 
-local UserInputService = game:GetService("UserInputService")
-UserInputService.InputBegan:Connect(function(input, _gameProcessed)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		local pos = input.Position
-		local guis = playerGui:GetGuiObjectsAtPosition(pos.X, pos.Y)
-
-		print("========================================")
-		print("[RADAR DE CLIQUE] Você clicou nos seguintes elementos:")
-		for i, gui in ipairs(guis) do
-			print(" [" .. i .. "] -> " .. gui.Name .. " (" .. gui.ClassName .. ") | ZIndex: " .. tostring(gui.ZIndex) .. " | Active: " .. tostring(gui.Active))
-		end
-		print("========================================")
-	end
-end)
-
 local function apply_remote_result(result: any): ()
 	if not result then return end
 	if result.message then set_notice(result.message) end
 	if result.data    then render_data(result.data)   end
 end
 
-local function select_world(worldId: string): ()
-	print("[DEBUG] Chamando select_world com o ID: " .. tostring(worldId))
-	apply_remote_result(invoke_remote(selectWorldRemote, worldId))
+local function select_world(worldId: string): boolean
+	local result = invoke_remote(selectWorldRemote, worldId)
+	apply_remote_result(result)
+
+	if typeof(result) == "table" and result.ok == true then
+		hasSelectedSave = true
+		show_screen("Main")
+		return true
+	end
+
+	return false
+end
+
+local function run_player_action(actionName: string): ()
+	apply_remote_result(invoke_remote(playerActionRemote, actionName))
 end
 
 local function run_train(): ()
@@ -340,54 +343,17 @@ local function connect_navigation(): ()
 end
 
 local function connect_actions(): ()
-	if hud then
-		FlipCard.setup("JJK",      "SAVE 3Card", hud)
-		FlipCard.setup("Naruto",   "SAVE 2Card", hud)
-		FlipCard.setup("Onepiece", "SAVE 1Card", hud)
-	end
-
-	-- Função auxiliar para empurrar a carta inteira para a frente e conectar o clique
-	local function fix_zIndex_and_connect(buttonName: string, worldId: string)
-		local btn = get_button(buttonName)
-		if btn then
-			local backCard = btn.Parent
-
-			-- 1. Puxa o Fundo do Verso da Carta (Ex: SAVE 1Card)
-			if backCard and backCard:IsA("GuiObject") then
-				backCard.ZIndex = 900
-
-				-- 2. Puxa TODOS os textos informativos (SaveOneInfoLabel, etc) para a frente do fundo
-				for _, child in backCard:GetDescendants() do
-					if child:IsA("GuiObject") then
-						child.ZIndex = 905
-					end
-				end
-			end
-
-			-- 3. Puxa o Botão de Select para a frente de tudo para garantir o clique
-			btn.ZIndex = 999
-
-			-- 4. Puxa o texto de dentro do botão (Ex: "SELECT")
-			for _, child in btn:GetDescendants() do
-				if child:IsA("GuiObject") then
-					child.ZIndex = 1000 
-				end
-			end
-
-			-- Conecta a ação de trocar de tela
-			btn.Activated:Connect(function()
-				hasSelectedSave = true
-				show_screen("Main") 
-				select_world(worldId)
-			end)
+	CharacterSelectionController.setup(hud, function()
+		if currentData and currentData.world == "JJK" then
+			hasSelectedSave = true
+			show_screen("Main")
+			show_page(currentPage)
+			set_notice("JJK loaded.")
+			return
 		end
-	end
+		select_world("JJK")
+	end)
 
-	-- Aplica a correção de camadas e conecta os 3 botões
-	fix_zIndex_and_connect("SaveOneButton", "Onepiece")
-	fix_zIndex_and_connect("SaveTwoButton", "Naruto")
-	fix_zIndex_and_connect("SaveThreeButton", "JJK")
-	
 	local QuestDictionaryLocal = require(dictionaryModules:WaitForChild("QuestDictionary") :: ModuleScript)
 	for _, questId in QuestDictionaryLocal.order do
 		local btn = get_button(questId .. "Button")
@@ -397,16 +363,22 @@ local function connect_actions(): ()
 			end)
 		end
 	end
-	connect_button(UIDictionary.buttons.cultivate, run_train)
+	connect_button(UIDictionary.buttons.train, run_train)
+	connect_button(UIDictionary.buttons.cultivate, function() run_player_action("Cultivate") end)
+	connect_button(UIDictionary.buttons.rest, function() run_player_action("Rest") end)
+	connect_button(UIDictionary.buttons.stop, function() run_player_action("Stop") end)
+	connect_button(UIDictionary.buttons.work, function() run_player_action("Work") end)
+	connect_button(UIDictionary.buttons.explore, function() run_player_action("Explore") end)
+	connect_button(UIDictionary.buttons.breakthrough, function() run_player_action("Breakthrough") end)
 	connect_button(UIDictionary.buttons.trophy, function()
 		set_notice("Achievements will connect after leaderboard data.")
 	end)
 	connect_button(UIDictionary.buttons.punch,  function() run_battle_action("Punch") end)
 	connect_button(UIDictionary.buttons.whack,  function() run_battle_action("Whack") end)
 	connect_button(UIDictionary.buttons.block,  function() run_battle_action("Block") end)
-	connect_button(UIDictionary.buttons.storyQuest,  function() run_quest("LookAround")   end)
+	connect_button(UIDictionary.buttons.storyQuest,  function() run_player_action("Explore") end)
 	connect_button(UIDictionary.buttons.cryQuest,    function() run_quest("CryLoudly")    end)
-	connect_button(UIDictionary.buttons.sleepQuest,  function() run_quest("Sleep")        end)
+	connect_button(UIDictionary.buttons.sleepQuest,  function() run_player_action("Rest") end)
 	connect_button(UIDictionary.buttons.wiggleQuest, function() run_quest("WiggleAround") end)
 	connect_button(UIDictionary.buttons.guildJoin,   function() set_notice("Guild join is a placeholder.")             end)
 	connect_button(UIDictionary.buttons.guildCreate, function() set_notice("Guild creation is a placeholder.")         end)
@@ -424,7 +396,7 @@ end
 
 ------------------//INIT
 if not hud then
-	warn("ChosenByGodHud not found. Run the StarterGui HUD builder first.")
+	warn("ChosenByGodHud not found in PlayerGui.")
 	return
 end
 
