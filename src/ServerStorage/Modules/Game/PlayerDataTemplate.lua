@@ -5,16 +5,46 @@ local ReplicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage"
 local replicatedModules: Folder = ReplicatedStorage:WaitForChild("Modules") :: Folder
 local gameModules: Folder = replicatedModules:WaitForChild("Game") :: Folder
 local GameConfig = require(gameModules:WaitForChild("GameConfig") :: ModuleScript)
+local AnimeRegistry = require(gameModules:WaitForChild("AnimeRegistry") :: ModuleScript)
 
 local PlayerDataTemplate = {}
 
 export type PlayerData = any
 
+local function clone_defaults(source: any): any
+	if typeof(source) ~= "table" then
+		return source
+	end
+
+	local copy = {}
+	for key, value in source do
+		copy[key] = clone_defaults(value)
+	end
+	return copy
+end
+
+local function get_world_upgrade_defaults(worldId: string): any
+	local animeModule = AnimeRegistry.get(worldId)
+	if animeModule and animeModule.initialUpgradeState then
+		return clone_defaults(animeModule.initialUpgradeState)
+	end
+
+	return {
+		stage = 0,
+		storyRuns = 0,
+		activeRepeatable = "",
+		unlockedRepeatables = {},
+		removedRepeatables = {},
+		permanent = {},
+	}
+end
+
 local TEMPLATE: PlayerData = {
-	world = "",
+	world = "JJK",
 	level = 1,
 	exp = 0,
 	dataVersion = GameConfig.DATA_VERSION,
+	createdAt = 0,
 	currentAction = "Idle",
 	stats = {
 		hp = 100,
@@ -33,8 +63,13 @@ local TEMPLATE: PlayerData = {
 		manual = "None",
 		manualMultiplier = 1,
 	},
-	abilitiesUnlocked = {},
-	abilitiesEquipped = {},
+	abilitiesUnlocked = {
+		"CursedStrike",
+	},
+	abilitiesEquipped = {
+		"CursedStrike",
+	},
+	abilityCooldowns = {},
 	moralPath = nil,
 	storyQuests = {},
 	loreLogs = {},
@@ -44,22 +79,56 @@ local TEMPLATE: PlayerData = {
 	},
 	activeTitle = "Chosen",
 	pinnedTitles = {},
-	jjk = nil,
+	jjk = {
+		curseEnergy = 0,
+	},
+	upgrades = {
+		JJK = get_world_upgrade_defaults("JJK"),
+		Naruto = get_world_upgrade_defaults("Naruto"),
+		OnePiece = get_world_upgrade_defaults("OnePiece"),
+	},
 	naruto = nil,
+	onePiece = nil,
 	rebirthCount = 0,
 	peakImmortalityPct = 0,
 	lastLogin = 0,
 	loginStreak = 0,
 	dailyQuestsDone = {},
+	dailyQuestsProgress = {
+		Train200 = 0,
+		Win5Battles = 0,
+		Play30Minutes = 0,
+	},
 	rebirthShards = 0,
 	worldSouls = 0,
 	divineTokens = 0,
+	boosts = {},
+	shopPurchases = {},
 	training = {
 		focus = 0,
 		totalTaps = 0,
 		burstEndsAt = 0,
 		bodyXp = 0,
 		techniqueXp = 0,
+	},
+	tutorial = {
+		step = 0,
+		complete = false,
+		skipped = false,
+	},
+	battle = {
+		selectedTier = 1,
+		sessionSouls = 0,
+		reviveCharges = 0,
+		lastResult = "",
+		lastEnemy = "",
+		lastGodTaunt = "",
+	},
+	boss = {
+		activeBossId = "",
+		remainingHp = 0,
+		attempts = 0,
+		lastPhase = 0,
 	},
 	resources = {
 		stamina = 4,
@@ -77,16 +146,26 @@ local TEMPLATE: PlayerData = {
 		claimedQuests = {},
 	},
 	inventory = {
-		items = {
-			"Training Wraps",
-			"Plain Uniform",
+		items = {},
+		equipmentBuffsApplied = false,
+		itemStacks = {
+			JJKBlindfold = 1,
+			JJKCursedPendant = 1,
+			JJKStudentUniform = 1,
+			JJKTrackPants = 1,
+			JJKTrainingKatana = 1,
+			JJKPaperTalisman = 1,
+			JJKRiceBall = 3,
+			JJKEnergyDrink = 2,
+			JJKSoulCandy = 1,
 		},
 		equipped = {
-			head = "",
-			neck = "",
-			shirt = "Plain Uniform",
-			pants = "",
-			weapon = "Training Wraps",
+			head = "JJKBlindfold",
+			neck = "JJKCursedPendant",
+			shirt = "JJKStudentUniform",
+			pants = "JJKTrackPants",
+			weapon = "JJKTrainingKatana",
+			enchantment = "JJKPaperTalisman",
 		},
 	},
 	settings = {

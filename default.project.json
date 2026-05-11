@@ -22,12 +22,6 @@
       "$className": "ServerStorage",
       "$path": "src/ServerStorage"
     },
-
-    "StarterGui": {
-      "$className": "StarterGui",
-      "$path": "src/StarterGui"
-    },
-
     "StarterPack": {
       "$className": "StarterPack",
       "$path": "src/StarterPack"

@@ -145,7 +145,6 @@ local function configure_card(worldRoot, worldId)
 				child.TextColor3 = content.buttonTextColor
 			end
 		elseif child:IsA("GuiButton") then
-			child.Name = worldId .. "Button"
 			if child:IsA("TextButton") then
 				child.Text = content.buttonText
 				if content.buttonTextColor then
@@ -164,13 +163,14 @@ local function configure_card(worldRoot, worldId)
 	end
 end
 
-local function find_select_button(worldRoot)
+local function find_select_buttons(worldRoot)
+	local buttons = {}
 	for _, child in worldRoot:GetDescendants() do
 		if child:IsA("GuiButton") then
-			return child
+			table.insert(buttons, child)
 		end
 	end
-	return nil
+	return buttons
 end
 
 local function create_fallback_select_button(worldRoot)
@@ -202,7 +202,11 @@ local function create_fallback_select_button(worldRoot)
 end
 
 local function connect_card_click(card, callback)
-	local button = find_select_button(card) or create_fallback_select_button(card)
+	local buttons = find_select_buttons(card)
+	if #buttons == 0 then
+		table.insert(buttons, create_fallback_select_button(card))
+	end
+
 	local clicking = false
 	local function trigger()
 		if clicking then
@@ -215,7 +219,9 @@ local function connect_card_click(card, callback)
 		end)
 	end
 
-	button.Activated:Connect(trigger)
+	for _, button in buttons do
+		button.Activated:Connect(trigger)
+	end
 
 	card.Active = true
 	card.InputBegan:Connect(function(input)

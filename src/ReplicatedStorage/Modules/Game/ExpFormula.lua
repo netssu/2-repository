@@ -3,7 +3,21 @@ local ExpFormula = {}
 
 ------------------//FUNCTIONS
 function ExpFormula.get_required_exp(level: number): number
-	return math.floor(100 + level * 25 + level ^ 1.5 * 8)
+	if level <= 10 then
+		return 100
+	elseif level <= 25 then
+		return 500
+	elseif level <= 50 then
+		return 2000
+	elseif level <= 100 then
+		return 8000
+	elseif level <= 200 then
+		return 30000
+	elseif level <= 300 then
+		return 100000
+	else
+		return 400000
+	end
 end
 
 function ExpFormula.add_exp(level: number, exp: number, addedExp: number, levelCap: number): {level: number, exp: number, levelsGained: number}

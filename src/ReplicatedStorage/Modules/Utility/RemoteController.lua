@@ -1,5 +1,6 @@
 ------------------//SERVICES
 local ReplicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService: RunService = game:GetService("RunService")
 
 ------------------//VARIABLES
 local RemoteController = {}
@@ -21,7 +22,15 @@ function RemoteController.create_folder(): Folder
 end
 
 function RemoteController.get_folder(): Folder
-	return ReplicatedStorage:WaitForChild(RemoteNames.folderName) :: Folder
+	local folder = ReplicatedStorage:WaitForChild(RemoteNames.folderName, 15)
+	if not folder then
+		if RunService:IsServer() then
+			return RemoteController.create_folder()
+		end
+		error("Remote folder " .. RemoteNames.folderName .. " was not created by the server in time.")
+	end
+
+	return folder :: Folder
 end
 
 function RemoteController.create(remoteName: string, remoteClassName: RemoteClassName): Instance
@@ -39,7 +48,14 @@ end
 
 function RemoteController.get(remoteName: string, remoteClassName: RemoteClassName): Instance
 	local remoteFolder = RemoteController.get_folder()
-	local remote = remoteFolder:WaitForChild(remoteName)
+	local remote = remoteFolder:WaitForChild(remoteName, 15)
+	if not remote then
+		if RunService:IsServer() then
+			return RemoteController.create(remoteName, remoteClassName)
+		end
+		error("Remote " .. remoteName .. " was not created by the server in time.")
+	end
+
 	if not remote:IsA(remoteClassName) then
 		error(remoteName .. " is not a " .. remoteClassName)
 	end
