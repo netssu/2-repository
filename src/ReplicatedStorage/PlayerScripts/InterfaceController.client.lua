@@ -1,4 +1,4 @@
-﻿--!strict
+--!strict
 ------------------//SERVICES
 local Players: Players = game:GetService("Players")
 local ReplicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
