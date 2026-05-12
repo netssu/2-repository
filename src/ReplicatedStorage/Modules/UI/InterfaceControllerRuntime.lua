@@ -52,6 +52,20 @@ local pendingButtons: {[GuiButton]: boolean} = {}
 local pendingQuestIds: {[string]: boolean} = {}
 local pendingRepeatableQuestId: string? = nil
 local optionButtonQuestByName: {[string]: string} = {}
+local inventoryFilter: string = "All"
+
+local INVENTORY_FILTER_ORDER = {"All", "Consumable", "Quest", "head", "neck", "shirt", "pants", "weapon", "enchantment"}
+local INVENTORY_FILTER_LABELS = {
+	All = "ALL",
+	Consumable = "USE",
+	Quest = "KEY",
+	head = "HEAD",
+	neck = "NECK",
+	shirt = "SHIRT",
+	pants = "PANTS",
+	weapon = "WEAPON",
+	enchantment = "ENCHANT",
+}
 
 ------------------//FUNCTIONS
 local function get_hud_child(childName: string): Instance?
@@ -180,11 +194,27 @@ local function update_fill(fillName: string, value: number, maxValue: number): (
 end
 
 local function get_rank_name(level: number): string
-	if level >= 500 then return "Immortal" end
-	if level >= 300 then return "Heaven Breaker" end
-	if level >= 100 then return "Special Grade" end
-	if level >= 50  then return "Grade 1" end
-	return "Mortal IX"
+	if level >= 500 then return "Special Grade" end
+	if level >= 320 then return "Semi-Grade 1" end
+	if level >= 220 then return "Grade 1" end
+	if level >= 130 then return "Grade 2" end
+	if level >= 60  then return "Grade 3" end
+	return "Grade 4"
+end
+
+local function get_stage_roman(stage: number): string
+	local roman = {"I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"}
+	return roman[math.clamp(math.floor(stage), 1, #roman)] or "I"
+end
+
+local function get_path_display(moralPath: string?): string
+	if moralPath == "Protector" then
+		return "Jujutsu Sorcerer"
+	end
+	if moralPath == "Conqueror" then
+		return "Curse User"
+	end
+	return "Non-Sorcerer"
 end
 
 local function get_cultivation_label(data: any): string
@@ -192,12 +222,13 @@ local function get_cultivation_label(data: any): string
 	local realmIndex = cultivation.realmIndex or 1
 	local stage = cultivation.stage or 1
 	local realmNames = GameConfig.REALM_NAMES or {}
-	return (realmNames[realmIndex] or get_rank_name(data.level or 1)) .. " " .. tostring(stage)
+	local gradeName = realmNames[realmIndex] or get_rank_name(data.level or 1)
+	return gradeName .. " " .. get_stage_roman(stage)
 end
 
 local function get_mechanic_text(data: any): string
 	if data.world == "JJK" and data.jjk then
-		return "Cursed Energy: " .. tostring(math.floor(data.jjk.curseEnergy)) .. "% | Rebirth: " .. tostring(data.rebirthCount or 0)
+		return "Output Control: " .. tostring(math.floor(data.jjk.curseEnergy)) .. "% | Rebirth: " .. tostring(data.rebirthCount or 0)
 	end
 	return "No mechanic"
 end
@@ -207,7 +238,7 @@ local function calculate_immortality_pct(data: any): number
 	local abilityCount = data.abilitiesUnlocked and #data.abilitiesUnlocked or 0
 	local loreCount = data.loreLogs and #data.loreLogs or 0
 	local value = (math.clamp((data.level or 1) / 500, 0, 1) * 60)
-		+ (math.clamp(storyCount / 7, 0, 1) * 20)
+		+ (math.clamp(storyCount / 13, 0, 1) * 20)
 		+ (math.clamp(abilityCount / 8, 0, 1) * 10)
 		+ (math.clamp(loreCount / 20, 0, 1) * 10)
 	return math.floor(value * 10) / 10
@@ -268,6 +299,9 @@ local function get_world_upgrade_state(data: any, worldId: string): any
 		storyRuns = 0,
 		unlockedRepeatables = {},
 		removedRepeatables = {},
+		repeatableSlotCap = 3,
+		chapterFlags = {},
+		upgradeFlags = {},
 		permanent = {},
 	}
 
@@ -278,6 +312,9 @@ local function get_world_upgrade_state(data: any, worldId: string): any
 	local state = upgrades[worldId]
 	state.unlockedRepeatables = state.unlockedRepeatables or deep_copy(defaults.unlockedRepeatables or {})
 	state.removedRepeatables = state.removedRepeatables or deep_copy(defaults.removedRepeatables or {})
+	state.repeatableSlotCap = state.repeatableSlotCap or defaults.repeatableSlotCap or 3
+	state.chapterFlags = state.chapterFlags or deep_copy(defaults.chapterFlags or {})
+	state.upgradeFlags = state.upgradeFlags or deep_copy(defaults.upgradeFlags or {})
 	state.permanent = state.permanent or deep_copy(defaults.permanent or {})
 	state.stage = state.stage or 0
 	state.storyRuns = state.storyRuns or 0
@@ -344,8 +381,15 @@ local function get_story_phase_text(data: any, questDef: any, QuestDictionaryLoc
 	end
 
 	local stageInfo = QuestDictionaryLocal.get_jjk_story_stage(nextRun)
-	if stageInfo and stageInfo.description then
-		return tostring(stageInfo.description)
+	if stageInfo then
+		local title = tostring(stageInfo.chapterTitle or "")
+		local text = tostring(stageInfo.chapterText or stageInfo.description or "")
+		if title ~= "" and text ~= "" then
+			return title .. " - " .. text
+		end
+		if text ~= "" then
+			return text
+		end
 	end
 
 	return "Advance the current story phase."
@@ -378,6 +422,38 @@ local function is_resource_blocked(data: any, questDef: any, currentProgress: nu
 	return false
 end
 
+local function is_story_blocked_by_requirements(data: any, questDef: any, QuestDictionaryLocal: any): boolean
+	if questDef.questType ~= "Story" or data.world ~= "JJK" then
+		return false
+	end
+
+	local state = get_jjk_upgrade_state(data)
+	local nextRun = (state.storyRuns or 0) + 1
+	local stageInfo = QuestDictionaryLocal.get_jjk_story_stage(nextRun)
+	local requiredItems = if stageInfo and stageInfo.requiredItems then stageInfo.requiredItems else questDef.requiredItems
+	local requiredFlags = if stageInfo and stageInfo.requiredUpgradeFlags then stageInfo.requiredUpgradeFlags else questDef.requiredUpgradeFlags
+
+	if requiredFlags then
+		local flags = state.upgradeFlags or {}
+		for _, flagId in requiredFlags do
+			if flags[flagId] ~= true then
+				return true
+			end
+		end
+	end
+
+	if requiredItems then
+		local stacks = (((data.inventory or {}).itemStacks) or {})
+		for itemId, amount in requiredItems do
+			if (stacks[itemId] or 0) < amount then
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
 local function get_quest_visual_state(data: any, questDef: any, questProgressValue: number, QuestDictionaryLocal: any): (boolean, boolean, string, boolean, string)
 	if questDef.worldId and questDef.worldId ~= data.world then
 		return false, false, "LOCKED", false, ""
@@ -396,7 +472,7 @@ local function get_quest_visual_state(data: any, questDef: any, questProgressVal
 				return false, false, "LOCKED", false, storyPhaseText
 			end
 
-			local storyBlocked = is_resource_blocked(data, questDef, questProgressValue or 0)
+			local storyBlocked = is_resource_blocked(data, questDef, questProgressValue or 0) or is_story_blocked_by_requirements(data, questDef, QuestDictionaryLocal)
 			return true, not storyBlocked, "STORY", storyBlocked, storyPhaseText
 		end
 
@@ -467,7 +543,7 @@ local function render_stats_page(data: any): ()
 	local requiredExp = ExpFormula.get_required_exp(data.level)
 	local focusValue  = data.training and data.training.focus or 0
 	local stats       = data.stats
-	local bloodline   = "Title: " .. tostring(data.activeTitle or "Chosen") .. " | Path: " .. tostring(data.moralPath or "Unchosen")
+	local bloodline   = "Title: " .. tostring(data.activeTitle or "Chosen") .. " | Path: " .. get_path_display(data.moralPath)
 	local cultivation = data.cultivation or {}
 	local qi = cultivation.qi or 0
 	local qiRequired = cultivation.qiRequired or 100
@@ -477,17 +553,28 @@ local function render_stats_page(data: any): ()
 	set_label_text(UIDictionary.labels.worldValue,       world and world.displayName or "No World")
 	set_label_text(UIDictionary.labels.levelValue,       "Level " .. tostring(data.level))
 	set_label_text(UIDictionary.labels.expValue,         format_number(data.exp) .. " / " .. format_number(requiredExp) .. " EXP")
-	set_label_text(UIDictionary.labels.focusValue,       tostring(math.floor(focusValue)) .. "% Focus")
+	set_label_text(UIDictionary.labels.focusValue,       tostring(math.floor(focusValue)) .. "% Output Control")
 	set_label_text(UIDictionary.labels.mechanicValue,    get_mechanic_text(data) .. " | Immortality: " .. tostring(calculate_immortality_pct(data)) .. "%")
-	set_label_text(UIDictionary.labels.cultivationValue, "Cultivation: " .. get_cultivation_label(data))
+	set_label_text(UIDictionary.labels.cultivationValue, "Sorcerer Grade: " .. get_cultivation_label(data))
 	set_label_text(UIDictionary.labels.ageValue,         "Age: " .. format_age_days(STARTING_AGE_DAYS + elapsedProfileDays))
 	set_label_text(UIDictionary.labels.lifespanValue,    "Lifespan: " .. format_age_days(math.max(0, STARTING_LIFESPAN_DAYS - elapsedProfileDays)))
-	set_label_text(UIDictionary.labels.qiValue,          "Current Qi: " .. format_decimal(qi, 2))
-	set_label_text(UIDictionary.labels.qiNeededValue,    "Qi Needed: " .. format_decimal(qiRequired, 2))
-	set_label_text(UIDictionary.labels.manualValue,      "Current Manual: " .. manual)
+	set_label_text(UIDictionary.labels.qiValue,          "Current CE: " .. format_decimal(qi, 2))
+	set_label_text(UIDictionary.labels.qiNeededValue,    "CE Needed: " .. format_decimal(qiRequired, 2))
+	set_label_text(UIDictionary.labels.manualValue,      "Current Technique: " .. manual)
 	set_label_text(UIDictionary.labels.bloodlineValue,   bloodline)
 	set_label_text(UIDictionary.labels.statsValue,       "Strength: " .. format_decimal(stats.atk or 0, 2) .. "\nVitality: " .. format_decimal(stats.hp or 0, 2) .. "\nSpeed: " .. format_decimal(stats.spd or 0, 2) .. "\nDefense: " .. format_decimal(stats.def or 0, 2) .. "\nLuck: " .. format_decimal(stats.luck or 0, 2))
 	update_fill(UIDictionary.labels.focusFill, focusValue, 100)
+
+	local cultivateButton = get_button(UIDictionary.buttons.cultivate)
+	if cultivateButton then
+		local stamina = ((data.resources or {}).stamina or 0)
+		local canMeditate = stamina >= (GameConfig.CULTIVATE_STAMINA_COST or 1)
+		local isPending = pendingButtons[cultivateButton] == true
+		cultivateButton.Active = canMeditate and not isPending
+		cultivateButton.AutoButtonColor = canMeditate and not isPending
+		cultivateButton.BackgroundColor3 = if isPending then UIDictionary.colors.blueAction elseif canMeditate then UIDictionary.colors.darkButton else UIDictionary.colors.redAction
+		set_button_text(cultivateButton, "MEDITATE")
+	end
 end
 
 local function render_quests_page(data: any): ()
@@ -532,31 +619,29 @@ local function render_quests_page(data: any): ()
 		UIDictionary.buttons.exorciseQuest,
 	}
 	local optionRepeatables = {}
+	local stageState = get_jjk_upgrade_state(data)
+	local repeatableSlotCap = if data.world == "JJK" then math.max(stageState.repeatableSlotCap or 3, 1) else #repeatableButtons
+	local visibleRepeatableCount = math.min(#repeatableButtons, repeatableSlotCap)
+
+	local preferredOrder = {}
 	local starterRepeatables = {"LookAround", "CryLoudly", "Sleep"}
 	for _, starterQuestId in starterRepeatables do
 		if list_has(availableRepeatables, starterQuestId) then
-			table.insert(optionRepeatables, starterQuestId)
+			table.insert(preferredOrder, starterQuestId)
 		end
 	end
 
-	local featuredQuestId: string? = nil
-	for _, questId in availableRepeatables do
-		if not list_has(starterRepeatables, questId) then
-			featuredQuestId = questId
+	for _, questId in QuestDictionaryLocal.order do
+		local questDef = QuestDictionaryLocal.get_quest(questId)
+		if questDef and questDef.repeatable and list_has(availableRepeatables, questId) and not list_has(preferredOrder, questId) then
+			table.insert(preferredOrder, questId)
 		end
 	end
-	if featuredQuestId and not list_has(optionRepeatables, featuredQuestId) then
-		table.insert(optionRepeatables, featuredQuestId)
-	end
 
-	if #optionRepeatables < #repeatableButtons then
-		for _, questId in availableRepeatables do
-			if not list_has(optionRepeatables, questId) then
-				table.insert(optionRepeatables, questId)
-				if #optionRepeatables >= #repeatableButtons then
-					break
-				end
-			end
+	for _, questId in preferredOrder do
+		table.insert(optionRepeatables, questId)
+		if #optionRepeatables >= visibleRepeatableCount then
+			break
 		end
 	end
 
@@ -702,155 +787,306 @@ local function render_player_viewport(): ()
 	camera.CFrame = CFrame.new(Vector3.new(0, size.Y * 0.35, distance), Vector3.new(0, size.Y * 0.45, 0))
 end
 
+local function get_slot_icon(slotName: string): string
+	local icons = {
+		head = "🎭",
+		neck = "📿",
+		shirt = "🥋",
+		pants = "👖",
+		weapon = "🗡️",
+		enchantment = "🧿",
+	}
+	return icons[slotName] or "⬜"
+end
+
+local function item_matches_filter(itemDef: any, filterId: string): boolean
+	if filterId == "All" then
+		return true
+	end
+
+	if filterId == "Consumable" then
+		return itemDef.category == "Consumable"
+	end
+
+	if filterId == "Quest" then
+		return itemDef.category == "Quest"
+	end
+
+	if itemDef.category ~= "Equipment" then
+		return false
+	end
+
+	return (itemDef.slot or "") == filterId
+end
+
 local function render_inventory_page(data: any): ()
 	local inventory = data.inventory or {}
 	local itemStacks = inventory.itemStacks or {}
 	local equipped = inventory.equipped or {}
 	local worldItems = ItemDictionary.get_world_items(data.world)
-	local equippedText = "Head: " .. get_item_display(equipped.head or "")
-		.. "\nNeck: " .. get_item_display(equipped.neck or "")
-		.. "\nShirt: " .. get_item_display(equipped.shirt or "")
-		.. "\nPants: " .. get_item_display(equipped.pants or "")
-		.. "\nWeapon: " .. get_item_display(equipped.weapon or "")
-		.. "\nEnchantment: " .. get_item_display(equipped.enchantment or "")
-
-	set_label_text(UIDictionary.labels.inventoryValue, equippedText)
 	render_player_viewport()
+
+	local equippedLabel = get_label(UIDictionary.labels.inventoryValue)
+	if equippedLabel then
+		equippedLabel.Visible = false
+	end
+
+	local equippedPanel = get_hud_child("EquippedPanel")
+	if equippedPanel and equippedPanel:IsA("GuiObject") then
+		local existingSlots = equippedPanel:FindFirstChild("EquipSlotGrid")
+		if existingSlots then
+			existingSlots:Destroy()
+		end
+
+		local slotsFrame = Instance.new("Frame")
+		slotsFrame.Name = "EquipSlotGrid"
+		slotsFrame.BackgroundTransparency = 1
+		slotsFrame.BorderSizePixel = 0
+		slotsFrame.Position = UDim2.fromScale(0.06, 0.58)
+		slotsFrame.Size = UDim2.fromScale(0.88, 0.36)
+		slotsFrame.Parent = equippedPanel
+
+		local slotsFrameOutline = Instance.new("UIStroke")
+		slotsFrameOutline.Color = UIDictionary.colors.line
+		slotsFrameOutline.Thickness = 1
+		slotsFrameOutline.Transparency = 0.15
+		slotsFrameOutline.Parent = slotsFrame
+
+		local slotOrder = {"head", "neck", "shirt", "pants", "weapon", "enchantment"}
+		local columns = 3
+		local tileSize = UDim2.fromScale(0.3, 0.45)
+		for index, slotName in slotOrder do
+			local row = math.floor((index - 1) / columns)
+			local column = (index - 1) % columns
+			local xScale = column * 0.34
+			local yScale = row * 0.5
+
+			local slotButton = Instance.new("TextButton")
+			slotButton.Name = slotName .. "EquipSlot"
+			slotButton.BackgroundColor3 = UIDictionary.colors.panel
+			slotButton.BorderSizePixel = 0
+			slotButton.Position = UDim2.fromScale(xScale, yScale)
+			slotButton.Size = tileSize
+			slotButton.Text = ""
+			slotButton.Parent = slotsFrame
+
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(0, 6)
+			corner.Parent = slotButton
+
+			local equippedId = equipped[slotName] or ""
+			local equippedDef = if equippedId ~= "" then ItemDictionary.get_item(equippedId) else nil
+
+			local stroke = Instance.new("UIStroke")
+			stroke.Color = if equippedDef then UIDictionary.colors.gold else UIDictionary.colors.line
+			stroke.Thickness = 2
+			stroke.Parent = slotButton
+
+			local emojiLabel = Instance.new("TextLabel")
+			emojiLabel.BackgroundTransparency = 1
+			emojiLabel.Size = UDim2.fromScale(1, 0.62)
+			emojiLabel.Position = UDim2.fromScale(0, 0)
+			emojiLabel.Font = Enum.Font.GothamBlack
+			emojiLabel.TextScaled = true
+			emojiLabel.TextColor3 = UIDictionary.colors.text
+			emojiLabel.Text = if equippedDef then tostring(equippedDef.emoji or "") else get_slot_icon(slotName)
+			emojiLabel.Parent = slotButton
+
+			local slotLabel = Instance.new("TextLabel")
+			slotLabel.BackgroundTransparency = 1
+			slotLabel.Size = UDim2.fromScale(1, 0.38)
+			slotLabel.Position = UDim2.fromScale(0, 0.62)
+			slotLabel.Font = Enum.Font.GothamBold
+			slotLabel.TextScaled = true
+			slotLabel.TextColor3 = UIDictionary.colors.whiteText
+			slotLabel.Text = string.upper(slotName)
+			slotLabel.Parent = slotButton
+
+			if equippedDef then
+				slotButton.BackgroundColor3 = UIDictionary.colors.card
+				slotButton.AutoButtonColor = true
+				slotButton.Activated:Connect(function()
+					run_player_action("UnequipSlot:" .. slotName)
+				end)
+			else
+				slotButton.AutoButtonColor = false
+				slotButton.Active = false
+			end
+		end
+	end
 
 	local grid = get_hud_child("InventoryGrid")
 	if not grid or not grid:IsA("GuiObject") then
 		return
 	end
 
-	local itemList = grid:FindFirstChild("InventoryItemList")
-	if not itemList then
-		local scrolling = Instance.new("ScrollingFrame")
-		scrolling.Name = "InventoryItemList"
-		scrolling.BackgroundTransparency = 1
-		scrolling.BorderSizePixel = 0
-		scrolling.Position = UDim2.fromScale(0.03, 0.03)
-		scrolling.Size = UDim2.fromScale(0.94, 0.94)
-		scrolling.ScrollBarThickness = 8
-		scrolling.CanvasSize = UDim2.fromOffset(0, 0)
-		scrolling.Parent = grid
-
-		local layout = Instance.new("UIListLayout")
-		layout.Padding = UDim.new(0, 8)
-		layout.Parent = scrolling
-		itemList = scrolling
+	for _, child in grid:GetChildren() do
+		child:Destroy()
 	end
 
-	if not itemList or not itemList:IsA("ScrollingFrame") then
-		return
+	local filterBar = Instance.new("Frame")
+	filterBar.Name = "InventoryFilterBar"
+	filterBar.BackgroundTransparency = 1
+	filterBar.BorderSizePixel = 0
+	filterBar.Position = UDim2.fromScale(0.02, 0.02)
+	filterBar.Size = UDim2.fromScale(0.96, 0.12)
+	filterBar.Parent = grid
+
+	local filterLayout = Instance.new("UIListLayout")
+	filterLayout.FillDirection = Enum.FillDirection.Horizontal
+	filterLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	filterLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	filterLayout.Padding = UDim.new(0, 5)
+	filterLayout.Parent = filterBar
+
+	for _, filterId in INVENTORY_FILTER_ORDER do
+		local filterButton = Instance.new("TextButton")
+		filterButton.Name = "Filter_" .. filterId
+		filterButton.Size = UDim2.fromScale(0.102, 0.95)
+		filterButton.BackgroundColor3 = if inventoryFilter == filterId then UIDictionary.colors.blueAction else UIDictionary.colors.darkButton
+		filterButton.BorderSizePixel = 0
+		filterButton.AutoButtonColor = true
+		filterButton.TextColor3 = UIDictionary.colors.whiteText
+		filterButton.Font = Enum.Font.GothamBold
+		filterButton.TextScaled = true
+		filterButton.TextWrapped = true
+		filterButton.Text = INVENTORY_FILTER_LABELS[filterId] or string.upper(filterId)
+		filterButton.Parent = filterBar
+
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 6)
+		corner.Parent = filterButton
+
+		filterButton.Activated:Connect(function()
+			if inventoryFilter == filterId then
+				return
+			end
+			inventoryFilter = filterId
+			render_inventory_page(currentData or data)
+		end)
 	end
 
-	for _, child in itemList:GetChildren() do
-		if not child:IsA("UIListLayout") then
-			child:Destroy()
-		end
-	end
+	local itemGrid = Instance.new("ScrollingFrame")
+	itemGrid.Name = "InventoryItemGrid"
+	itemGrid.BackgroundTransparency = 1
+	itemGrid.BorderSizePixel = 0
+	itemGrid.Position = UDim2.fromScale(0.02, 0.16)
+	itemGrid.Size = UDim2.fromScale(0.96, 0.82)
+	itemGrid.ScrollBarThickness = 8
+	itemGrid.CanvasSize = UDim2.fromOffset(0, 0)
+	itemGrid.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	itemGrid.Parent = grid
+
+	local gridLayout = Instance.new("UIGridLayout")
+	gridLayout.CellSize = UDim2.fromOffset(112, 112)
+	gridLayout.CellPadding = UDim2.fromOffset(8, 8)
+	gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+	gridLayout.VerticalAlignment = Enum.VerticalAlignment.Top
+	gridLayout.Parent = itemGrid
 
 	local visibleCount = 0
 	for _, itemDef in worldItems do
 		local amount = itemStacks[itemDef.id] or 0
-		if amount > 0 then
+		if amount > 0 and item_matches_filter(itemDef, inventoryFilter) then
 			visibleCount += 1
+			local slotName = itemDef.slot or ""
+			local isEquipped = slotName ~= "" and equipped[slotName] == itemDef.id
 
-			local card = Instance.new("Frame")
-			card.Name = itemDef.id .. "Card"
-			card.BackgroundColor3 = UIDictionary.colors.card
-			card.BorderSizePixel = 0
-			card.Size = UDim2.new(1, -4, 0, 104)
-			card.Parent = itemList
+			local tile = Instance.new("TextButton")
+			tile.Name = itemDef.id .. "Tile"
+			tile.BackgroundColor3 = if isEquipped then UIDictionary.colors.gold else UIDictionary.colors.card
+			tile.BorderSizePixel = 0
+			tile.Text = ""
+			tile.AutoButtonColor = true
+			tile.LayoutOrder = visibleCount
+			tile.Parent = itemGrid
 
 			local corner = Instance.new("UICorner")
-			corner.CornerRadius = UDim.new(0, 8)
-			corner.Parent = card
+			corner.CornerRadius = UDim.new(0, 6)
+			corner.Parent = tile
 
-			local emoji = Instance.new("TextLabel")
-			emoji.BackgroundTransparency = 1
-			emoji.Position = UDim2.fromOffset(8, 4)
-			emoji.Size = UDim2.fromOffset(44, 44)
-			emoji.Font = Enum.Font.GothamBlack
-			emoji.TextScaled = true
-			emoji.Text = itemDef.emoji or "?"
-			emoji.TextColor3 = UIDictionary.colors.text
-			emoji.Parent = card
+			local stroke = Instance.new("UIStroke")
+			stroke.Color = if isEquipped then UIDictionary.colors.gold else UIDictionary.colors.line
+			stroke.Thickness = 2
+			stroke.Parent = tile
 
-			local title = Instance.new("TextLabel")
-			title.BackgroundTransparency = 1
-			title.Position = UDim2.fromOffset(60, 8)
-			title.Size = UDim2.new(1, -68, 0, 22)
-			title.Font = Enum.Font.GothamBold
-			title.TextSize = 16
-			title.TextXAlignment = Enum.TextXAlignment.Left
-			title.TextColor3 = UIDictionary.colors.text
-			title.Text = itemDef.displayName .. " x" .. tostring(amount)
-			title.Parent = card
+			local emojiLabel = Instance.new("TextLabel")
+			emojiLabel.BackgroundTransparency = 1
+			emojiLabel.Position = UDim2.fromScale(0.1, 0.06)
+			emojiLabel.Size = UDim2.fromScale(0.8, 0.44)
+			emojiLabel.Font = Enum.Font.GothamBlack
+			emojiLabel.TextScaled = true
+			emojiLabel.TextColor3 = UIDictionary.colors.text
+			emojiLabel.Text = tostring(itemDef.emoji or "")
+			emojiLabel.Parent = tile
 
-			local desc = Instance.new("TextLabel")
-			desc.BackgroundTransparency = 1
-			desc.Position = UDim2.fromOffset(60, 30)
-			desc.Size = UDim2.new(1, -68, 0, 20)
-			desc.Font = Enum.Font.Gotham
-			desc.TextSize = 13
-			desc.TextXAlignment = Enum.TextXAlignment.Left
-			desc.TextColor3 = UIDictionary.colors.mutedText
-			desc.Text = itemDef.description or ""
-			desc.Parent = card
+			local qtyLabel = Instance.new("TextLabel")
+			qtyLabel.BackgroundTransparency = 1
+			qtyLabel.Position = UDim2.fromScale(0.58, 0.02)
+			qtyLabel.Size = UDim2.fromScale(0.38, 0.2)
+			qtyLabel.Font = Enum.Font.GothamBold
+			qtyLabel.TextScaled = true
+			qtyLabel.TextColor3 = UIDictionary.colors.whiteText
+			qtyLabel.TextXAlignment = Enum.TextXAlignment.Right
+			qtyLabel.Text = "x" .. tostring(amount)
+			qtyLabel.Parent = tile
 
-			local statLine = Instance.new("TextLabel")
-			statLine.BackgroundTransparency = 1
-			statLine.Position = UDim2.fromOffset(8, 52)
-			statLine.Size = UDim2.new(1, -16, 0, 18)
-			statLine.Font = Enum.Font.GothamBold
-			statLine.TextSize = 12
-			statLine.TextXAlignment = Enum.TextXAlignment.Left
-			statLine.TextColor3 = UIDictionary.colors.blueAction
-			statLine.Text = itemDef.category == "Equipment" and get_buff_text(itemDef) or get_effect_text(itemDef)
-			statLine.Parent = card
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.Position = UDim2.fromScale(0.08, 0.52)
+			nameLabel.Size = UDim2.fromScale(0.84, 0.3)
+			nameLabel.Font = Enum.Font.GothamBold
+			nameLabel.TextScaled = true
+			nameLabel.TextWrapped = true
+			nameLabel.TextColor3 = UIDictionary.colors.whiteText
+			nameLabel.Text = itemDef.displayName
+			nameLabel.Parent = tile
 
-			local actionButton = Instance.new("TextButton")
-			actionButton.BackgroundColor3 = UIDictionary.colors.darkButton
-			actionButton.BorderSizePixel = 0
-			actionButton.Position = UDim2.new(1, -122, 1, -30)
-			actionButton.Size = UDim2.fromOffset(114, 24)
-			actionButton.AutoButtonColor = true
-			actionButton.Font = Enum.Font.GothamBold
-			actionButton.TextSize = 12
-			actionButton.TextColor3 = UIDictionary.colors.whiteText
-			actionButton.Parent = card
+			local actionLabel = Instance.new("TextLabel")
+			actionLabel.BackgroundTransparency = 1
+			actionLabel.Position = UDim2.fromScale(0.08, 0.83)
+			actionLabel.Size = UDim2.fromScale(0.84, 0.14)
+			actionLabel.Font = Enum.Font.Gotham
+			actionLabel.TextScaled = true
+			actionLabel.TextColor3 = if isEquipped then UIDictionary.colors.background else UIDictionary.colors.mutedText
+			actionLabel.Text = if itemDef.category == "Consumable" then "USE" elseif itemDef.category == "Equipment" and isEquipped then "EQUIPPED" elseif itemDef.category == "Equipment" then "EQUIP" else "KEY"
+			actionLabel.Parent = tile
 
-			local buttonCorner = Instance.new("UICorner")
-			buttonCorner.CornerRadius = UDim.new(0, 6)
-			buttonCorner.Parent = actionButton
-
-			if itemDef.category == "Equipment" then
-				local slotName = itemDef.slot or ""
-				local isEquipped = slotName ~= "" and equipped[slotName] == itemDef.id
-				actionButton.Text = isEquipped and "UNEQUIP" or "EQUIP"
-				actionButton.BackgroundColor3 = isEquipped and UIDictionary.colors.redAction or UIDictionary.colors.darkButton
-				if isEquipped then
-					actionButton.Activated:Connect(function()
-						run_player_action("UnequipSlot:" .. slotName)
-					end)
-				else
-					actionButton.Activated:Connect(function()
-						run_player_action("EquipItem:" .. itemDef.id)
-					end)
-				end
-			else
-				actionButton.Text = "USE"
-				actionButton.Activated:Connect(function()
+			if itemDef.category == "Consumable" then
+				tile.Activated:Connect(function()
 					run_player_action("UseItem:" .. itemDef.id)
 				end)
+			elseif itemDef.category == "Equipment" then
+				tile.Activated:Connect(function()
+					local latestData = currentData or data
+					local latestInventory = latestData and latestData.inventory or {}
+					local latestEquipped = latestInventory and latestInventory.equipped or {}
+					local currentlyEquippedId = if slotName ~= "" then (latestEquipped[slotName] or "") else ""
+					if slotName ~= "" and currentlyEquippedId == itemDef.id then
+						run_player_action("UnequipSlot:" .. slotName)
+					else
+						run_player_action("EquipItem:" .. itemDef.id)
+					end
+				end)
+			else
+				tile.AutoButtonColor = false
+				tile.Active = false
 			end
 		end
 	end
 
-	local layout = itemList:FindFirstChildOfClass("UIListLayout")
-	if layout then
-		itemList.CanvasSize = UDim2.fromOffset(0, math.max(visibleCount * 112, 1))
+	if visibleCount == 0 then
+		local emptyLabel = Instance.new("TextLabel")
+		emptyLabel.Name = "EmptyInventoryLabel"
+		emptyLabel.BackgroundTransparency = 1
+		emptyLabel.Position = UDim2.fromScale(0.08, 0.1)
+		emptyLabel.Size = UDim2.fromScale(0.84, 0.2)
+		emptyLabel.Font = Enum.Font.GothamBold
+		emptyLabel.TextScaled = true
+		emptyLabel.TextColor3 = UIDictionary.colors.mutedText
+		emptyLabel.Text = "No items in this filter."
+		emptyLabel.Parent = itemGrid
 	end
 end
 
@@ -860,14 +1096,20 @@ local function render_static_pages(data: any): ()
 	local battle = data.battle or {}
 	local jjkUpgrades = get_jjk_upgrade_state(data)
 	local permanent = jjkUpgrades.permanent or {}
+	local chapterCount = 0
+	for _, value in (jjkUpgrades.chapterFlags or {}) do
+		if value == true then
+			chapterCount += 1
+		end
+	end
 	local QuestDictionaryLocal = require(dictionaryModules:WaitForChild("QuestDictionary") :: ModuleScript)
 	local storyQuest = QuestDictionaryLocal.get_quest("SchoolTrial")
 	local storyPhaseText = if storyQuest then get_story_phase_text(data, storyQuest, QuestDictionaryLocal) else "Story path locked."
-	set_label_text(UIDictionary.labels.guildValue,    "Moral Path: " .. tostring(data.moralPath or "Unchosen") .. "\nProtector: +15% quest EXP\nConqueror: +20% battle EXP")
+	set_label_text(UIDictionary.labels.guildValue,    "Sorcerer Path: " .. get_path_display(data.moralPath) .. "\nJujutsu Sorcerer: +15% quest EXP\nCurse User: +20% battle EXP")
 	set_label_text(UIDictionary.labels.shopValue,     "World Souls: " .. tostring(data.worldSouls) .. "\nDivine Tokens: " .. tostring(data.divineTokens) .. "\nRebirth Shards: " .. tostring(data.rebirthShards) .. "\nSmall EXP Potion, Focus Charge, and Rebirth are connected.")
 	set_label_text(UIDictionary.labels.miscValue,     "Score: " .. tostring(leaderboardScore) .. "\nDaily Quests: " .. tostring(dailyDone) .. "/3\nLast Battle: " .. tostring(battle.lastResult or "None") .. " " .. tostring(battle.lastEnemy or "") .. "\nGod: " .. tostring(battle.lastGodTaunt or "Watching."))
-	set_label_text(UIDictionary.labels.settingsValue, "Abbreviations: " .. format_bool(data.settings.abbreviations) .. "\nHard Mode: " .. format_bool(data.settings.hardMode) .. "\nAuto Breakthrough: " .. format_bool(data.settings.autoBreakthrough))
-	set_label_text(UIDictionary.labels.upgradeStatus, "JJK Stage: " .. tostring(jjkUpgrades.stage or 0) .. "\nStory Phase: " .. storyPhaseText .. "\nBody " .. tostring(permanent.cursedBody or 0) .. " | Control " .. tostring(permanent.cursedControl or 0) .. " | Focus " .. tostring(permanent.cooldownFocus or 0))
+	set_label_text(UIDictionary.labels.settingsValue, "Abbreviations: " .. format_bool(data.settings.abbreviations) .. "\nHard Mode: " .. format_bool(data.settings.hardMode) .. "\nAuto Awakening: " .. format_bool(data.settings.autoBreakthrough))
+	set_label_text(UIDictionary.labels.upgradeStatus, "JJK Stage: " .. tostring(jjkUpgrades.stage or 0) .. " | Chapters: " .. tostring(chapterCount) .. "/13\nStory Phase: " .. storyPhaseText .. "\nSlots: " .. tostring(jjkUpgrades.repeatableSlotCap or 3) .. " | Body " .. tostring(permanent.cursedBody or 0) .. " | Control " .. tostring(permanent.cursedControl or 0) .. " | Focus " .. tostring(permanent.cooldownFocus or 0))
 end
 
 local function render_data(data: any): ()
@@ -1033,6 +1275,24 @@ local function run_quest_with_visual_delay(questId: string, buttonName: string):
 	end)
 end
 
+local function run_cultivate_with_visual_delay(): ()
+	local buttonName = UIDictionary.buttons.cultivate
+	local button = get_button(buttonName)
+	if not button then
+		run_player_action("Cultivate")
+		return
+	end
+
+	if pendingButtons[button] then
+		return
+	end
+
+	local delaySeconds = math.max(GameConfig.MEDITATE_DELAY_SECONDS or 1, 0)
+	run_button_delay(button, delaySeconds, function()
+		run_player_action("Cultivate")
+	end)
+end
+
 local function run_option_quest(buttonName: string): ()
 	local questId = optionButtonQuestByName[buttonName]
 	if not questId then
@@ -1085,7 +1345,7 @@ local function connect_actions(): ()
 		end
 	end
 	connect_button(UIDictionary.buttons.train, run_train)
-	connect_button(UIDictionary.buttons.cultivate, function() run_player_action("Cultivate") end)
+	connect_button(UIDictionary.buttons.cultivate, run_cultivate_with_visual_delay)
 	connect_button(UIDictionary.buttons.rest, function() run_player_action("Rest") end)
 	connect_button(UIDictionary.buttons.stop, function() run_player_action("Stop") end)
 	connect_button(UIDictionary.buttons.work, function() run_player_action("Work") end)

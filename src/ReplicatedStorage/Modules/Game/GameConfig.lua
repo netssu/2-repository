@@ -1,10 +1,11 @@
 ------------------//VARIABLES
 local GameConfig = {
-	DATA_VERSION = 3,
+	DATA_VERSION = 4,
 	LEVEL_CAP = 600,
 	AUTO_SAVE_SECONDS = 60,
 	ACTION_TICK_SECONDS = 1,
 	MIN_TRAIN_INTERVAL = 0.12,
+	MEDITATE_DELAY_SECONDS = 1,
 	CULTIVATE_STAMINA_COST = 1,
 	CULTIVATE_KNOWLEDGE_GAIN = 1,
 	TRAIN_EXP_PER_TICK = 5,
@@ -45,12 +46,12 @@ local GameConfig = {
 	MAX_REBIRTHS = 5,
 	LORE_LOGS_PER_WORLD = 20,
 	REALM_NAMES = {
-		"Mortal",
-		"Qi Gathering",
-		"Foundation",
-		"Core Formation",
-		"Nascent Soul",
-		"Immortal",
+		"Grade 4",
+		"Grade 3",
+		"Grade 2",
+		"Grade 1",
+		"Semi-Grade 1",
+		"Special Grade",
 	},
 	BATTLE_TIERS = {
 		{
@@ -62,8 +63,6 @@ local GameConfig = {
 			baseAtk = 7,
 			baseDef = 3,
 			jjkEnemy = "Grade 4 Cursed Spirit",
-			narutoEnemy = "Academy Student",
-			onePieceEnemy = "Sea Bandit",
 		},
 		{
 			tier = 2,
@@ -74,8 +73,6 @@ local GameConfig = {
 			baseAtk = 18,
 			baseDef = 12,
 			jjkEnemy = "Grade 3 Cursed Spirit",
-			narutoEnemy = "Genin",
-			onePieceEnemy = "East Blue Pirate",
 		},
 		{
 			tier = 3,
@@ -86,8 +83,6 @@ local GameConfig = {
 			baseAtk = 44,
 			baseDef = 35,
 			jjkEnemy = "Grade 2 Cursed Spirit",
-			narutoEnemy = "Chunin",
-			onePieceEnemy = "Grand Line Rookie",
 		},
 		{
 			tier = 4,
@@ -98,8 +93,6 @@ local GameConfig = {
 			baseAtk = 120,
 			baseDef = 90,
 			jjkEnemy = "Grade 1 Cursed Spirit",
-			narutoEnemy = "Jonin",
-			onePieceEnemy = "Warlord-tier",
 		},
 		{
 			tier = 5,
@@ -110,8 +103,6 @@ local GameConfig = {
 			baseAtk = 280,
 			baseDef = 180,
 			jjkEnemy = "Special Grade",
-			narutoEnemy = "Kage-level",
-			onePieceEnemy = "Admiral-tier",
 		},
 	},
 	STORY_MILESTONES = {

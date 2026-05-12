@@ -34,6 +34,9 @@ local function get_world_upgrade_defaults(worldId: string): any
 		storyRuns = 0,
 		unlockedRepeatables = {},
 		removedRepeatables = {},
+		repeatableSlotCap = 3,
+		chapterFlags = {},
+		upgradeFlags = {},
 		permanent = {},
 	}
 end
@@ -128,8 +131,8 @@ local TEMPLATE: PlayerData = {
 	resources = {
 		stamina = 4,
 		maxStamina = GameConfig.STAMINA_MAX,
-		food = 3,
-		knowledge = 10,
+		food = 4,
+		knowledge = 0,
 		gold = 0,
 	},
 	progress = {
@@ -145,18 +148,17 @@ local TEMPLATE: PlayerData = {
 		equipmentBuffsApplied = false,
 		itemStacks = {
 			JJKBlindfold = 1,
-			JJKSixEyesBand = 1,
 			JJKCursedPendant = 1,
 			JJKStudentUniform = 1,
 			JJKTrackPants = 1,
 			JJKTrainingKatana = 1,
 			JJKPaperTalisman = 1,
 			JJKRiceBall = 3,
-			JJKCurryBread = 2,
-			JJKEnergyDrink = 2,
+			JJKCurryBread = 3,
+			JJKEnergyDrink = 1,
 			JJKFocusTea = 1,
-			JJKSoulCandy = 1,
-			JJKSpiritRation = 1,
+			JJKSpiritRation = 2,
+			JJKProteinSkewer = 1,
 		},
 		equipped = {
 			head = "JJKBlindfold",
@@ -216,6 +218,12 @@ function PlayerDataTemplate.create(): PlayerData
 end
 
 function PlayerDataTemplate.merge(data: any): PlayerData
+	if typeof(data) ~= "table" or data.dataVersion ~= GameConfig.DATA_VERSION then
+		local fresh = PlayerDataTemplate.create()
+		fresh.dataVersion = GameConfig.DATA_VERSION
+		return fresh
+	end
+
 	local merged = merge_defaults(data, TEMPLATE)
 	if merged.upgrades then
 		merged.upgrades.Naruto = nil

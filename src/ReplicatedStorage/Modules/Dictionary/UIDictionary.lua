@@ -115,7 +115,6 @@ UIDictionary.colors = {
 	darkButton = Color3.fromRGB(56, 63, 82),
 	disabled = Color3.fromRGB(84, 90, 106),
 	jjk = Color3.fromRGB(124, 72, 214),
-	naruto = Color3.fromRGB(60, 132, 210),
 	stamina = Color3.fromRGB(84, 194, 189),
 	food = Color3.fromRGB(201, 91, 98),
 	knowledge = Color3.fromRGB(197, 66, 181),

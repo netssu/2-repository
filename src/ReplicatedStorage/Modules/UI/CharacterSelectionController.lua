@@ -11,7 +11,7 @@ local WORLD_CONTENT = {
 	JJK = {
 		buttonText = "SELECT",
 		buttonTextColor = SELECT_TEXT_COLOR,
-		infoText = "World: Jujutsu\nCultivation:\nMortal IX\nPVP Battles Won: 0\nQuests Completed: 0\nWorld Souls: 0\nPlaytime: 0",
+		infoText = "World: Jujutsu\nSorcerer Grade:\nGrade 4\nPVP Battles Won: 0\nQuests Completed: 0\nWorld Souls: 0\nPlaytime: 0",
 	},
 }
 

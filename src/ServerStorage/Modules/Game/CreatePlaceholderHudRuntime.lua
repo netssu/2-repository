@@ -119,7 +119,6 @@ local DEFAULT_UI = {
 		darkButton = Color3.fromRGB(56, 63, 82),
 		disabled = Color3.fromRGB(84, 90, 106),
 		jjk = Color3.fromRGB(124, 72, 214),
-		naruto = Color3.fromRGB(60, 132, 210),
 		stamina = Color3.fromRGB(84, 194, 189),
 		food = Color3.fromRGB(201, 91, 98),
 		knowledge = Color3.fromRGB(197, 66, 181),
@@ -275,7 +274,7 @@ local function create_save_card(parent: Instance, title: string, labelName: stri
 	local card = create_panel(parent, title .. "Card", UDim2.fromScale(x, 0.16), UDim2.fromScale(0.26, 0.74))
 	card.BackgroundColor3 = cardColor
 
-	create_label(card, labelName, "World: Unborn\nCultivation: Mortal I\nPVP Battles Won: 0\nQuests Completed: 0\nWorld Souls: 0\nPlaytime: 0", UDim2.fromScale(0.08, 0.08), UDim2.fromScale(0.84, 0.62), UIDictionary.colors.text, Enum.Font.GothamBold, Enum.TextXAlignment.Center)
+	create_label(card, labelName, "World: Unborn\nSorcerer Grade: Grade 4\nPVP Battles Won: 0\nQuests Completed: 0\nWorld Souls: 0\nPlaytime: 0", UDim2.fromScale(0.08, 0.08), UDim2.fromScale(0.84, 0.62), UIDictionary.colors.text, Enum.Font.GothamBold, Enum.TextXAlignment.Center)
 
 	local buttonText = locked and "LOCKED" or "SELECT"
 	local buttonColor = locked and UIDictionary.colors.disabled or UIDictionary.colors.card
@@ -354,17 +353,17 @@ local function create_stats_page(content: Frame): ()
 	create_label(page, "SilhouetteLabel", "SILHOUETTE", UDim2.fromScale(0.07, 0.12), UDim2.fromScale(0.4, 0.48), UIDictionary.colors.line, Enum.Font.GothamBlack, Enum.TextXAlignment.Center)
 
 	local info = create_frame(page, "StatsInfoPanel", UDim2.fromScale(0.53, 0.1), UDim2.fromScale(0.42, 0.32), UIDictionary.colors.canvas, true)
-	create_label(info, UIDictionary.labels.cultivationValue, "Cultivation: Mortal IX", UDim2.fromScale(0.02, 0.02), UDim2.fromScale(0.96, 0.14), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
+	create_label(info, UIDictionary.labels.cultivationValue, "Sorcerer Grade: Grade 4 I", UDim2.fromScale(0.02, 0.02), UDim2.fromScale(0.96, 0.14), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
 	create_label(info, UIDictionary.labels.ageValue, "Age: 18 Years", UDim2.fromScale(0.02, 0.17), UDim2.fromScale(0.96, 0.13), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
 	create_label(info, UIDictionary.labels.lifespanValue, "Lifespan: 100 Years", UDim2.fromScale(0.02, 0.32), UDim2.fromScale(0.96, 0.13), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
-	create_label(info, UIDictionary.labels.qiValue, "Current Qi: 0", UDim2.fromScale(0.02, 0.47), UDim2.fromScale(0.96, 0.13), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
-	create_label(info, UIDictionary.labels.qiNeededValue, "Qi Needed: 0", UDim2.fromScale(0.02, 0.62), UDim2.fromScale(0.96, 0.13), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
-	create_label(info, UIDictionary.labels.manualValue, "Current Manual: None", UDim2.fromScale(0.02, 0.77), UDim2.fromScale(0.96, 0.13), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
+	create_label(info, UIDictionary.labels.qiValue, "Current CE: 0", UDim2.fromScale(0.02, 0.47), UDim2.fromScale(0.96, 0.13), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
+	create_label(info, UIDictionary.labels.qiNeededValue, "CE Needed: 0", UDim2.fromScale(0.02, 0.62), UDim2.fromScale(0.96, 0.13), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
+	create_label(info, UIDictionary.labels.manualValue, "Current Technique: None", UDim2.fromScale(0.02, 0.77), UDim2.fromScale(0.96, 0.13), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
 
-	create_button(page, UIDictionary.buttons.cultivate, "CULTIVATE", UDim2.fromScale(0.54, 0.46), UDim2.fromScale(0.35, 0.09), UIDictionary.colors.card, UIDictionary.colors.blueAction)
+	create_button(page, UIDictionary.buttons.cultivate, "MEDITATE", UDim2.fromScale(0.54, 0.46), UDim2.fromScale(0.35, 0.09), UIDictionary.colors.card, UIDictionary.colors.blueAction)
 	create_button(page, UIDictionary.buttons.trophy, "ACH", UDim2.fromScale(0.91, 0.46), UDim2.fromScale(0.08, 0.09), UIDictionary.colors.card, UIDictionary.colors.blueAction)
 	create_bar(page, "FocusBar", UIDictionary.labels.focusFill, UDim2.fromScale(0.54, 0.57), UDim2.fromScale(0.35, 0.035), UIDictionary.colors.blueAction)
-	create_label(page, UIDictionary.labels.focusValue, "0% Focus", UDim2.fromScale(0.9, 0.56), UDim2.fromScale(0.09, 0.05), UIDictionary.colors.text, Enum.Font.GothamBold, Enum.TextXAlignment.Left)
+	create_label(page, UIDictionary.labels.focusValue, "0% Output Control", UDim2.fromScale(0.86, 0.56), UDim2.fromScale(0.13, 0.05), UIDictionary.colors.text, Enum.Font.GothamBold, Enum.TextXAlignment.Left)
 	create_label(page, UIDictionary.labels.mechanicValue, "No mechanic", UDim2.fromScale(0.54, 0.61), UDim2.fromScale(0.42, 0.05), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
 	create_label(page, UIDictionary.labels.bloodlineValue, "Bloodline: None | Clan: None", UDim2.fromScale(0.32, 0.67), UDim2.fromScale(0.64, 0.06), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Center)
 
@@ -413,9 +412,9 @@ local function create_quests_page(content: Frame): ()
 		panels[column.type] = create_panel(page, column.title .. "Panel", UDim2.fromScale(column.x, 0.14), UDim2.fromScale(0.3, 0.8))
 	end
 
-	-- Lê dinamicamente o QuestDictionary e cria as UIs
+	-- Build quest cards directly from QuestDictionary.
 	local storyY, repeatY = 0.02, 0.02
-	local QuestDictionary = require(game.ReplicatedStorage.Modules.Dictionary.QuestDictionary) -- Ajuste o caminho se necessário
+	local QuestDictionary = require(game.ReplicatedStorage.Modules.Dictionary.QuestDictionary)
 
 	for _, questId in QuestDictionary.order do
 		local quest = QuestDictionary.get_quest(questId)
@@ -487,7 +486,7 @@ local function create_misc_page(content: Frame): ()
 
 	create_frame(page, "MiscHeader", UDim2.fromScale(0.27, 0.04), UDim2.fromScale(0.68, 0.13), Color3.fromRGB(39, 55, 76), true)
 	create_label(page, "MiscTitle", "MISC", UDim2.fromScale(0.29, 0.055), UDim2.fromScale(0.3, 0.1), UIDictionary.colors.whiteText, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
-	create_label(page, "LeaderboardTabs", "CULTIVATION   SOUL FRAGS   TOP SPENDER   QUESTS DONE", UDim2.fromScale(0.29, 0.2), UDim2.fromScale(0.64, 0.07), UIDictionary.colors.text, Enum.Font.GothamBold, Enum.TextXAlignment.Center)
+	create_label(page, "LeaderboardTabs", "SORCERER RANK   SOUL FRAGS   TOP SPENDER   QUESTS DONE", UDim2.fromScale(0.29, 0.2), UDim2.fromScale(0.64, 0.07), UIDictionary.colors.text, Enum.Font.GothamBold, Enum.TextXAlignment.Center)
 	create_panel(page, "LeaderboardPanel", UDim2.fromScale(0.29, 0.31), UDim2.fromScale(0.64, 0.56))
 	create_label(page, UIDictionary.labels.miscValue, "#1  You\n#2  Future Rival\n#3  Empty Slot", UDim2.fromScale(0.33, 0.36), UDim2.fromScale(0.56, 0.4), UIDictionary.colors.text, Enum.Font.GothamBlack, Enum.TextXAlignment.Left)
 end
@@ -505,8 +504,8 @@ local function create_settings_page(content: Frame): ()
 	local settingsPanel = create_panel(page, "SettingsPanel", UDim2.fromScale(0.28, 0.22), UDim2.fromScale(0.66, 0.65))
 	create_button(settingsPanel, UIDictionary.buttons.settingAbbreviations, "Abbreviations", UDim2.fromScale(0.34, 0.1), UDim2.fromScale(0.32, 0.12), UIDictionary.colors.card, UIDictionary.colors.text)
 	create_button(settingsPanel, UIDictionary.buttons.settingHardMode, "Hard Mode", UDim2.fromScale(0.34, 0.34), UDim2.fromScale(0.32, 0.12), UIDictionary.colors.card, UIDictionary.colors.text)
-	create_button(settingsPanel, UIDictionary.buttons.settingAutoBreakthrough, "Auto Breakthrough", UDim2.fromScale(0.34, 0.58), UDim2.fromScale(0.32, 0.12), UIDictionary.colors.card, UIDictionary.colors.text)
-	create_label(settingsPanel, UIDictionary.labels.settingsValue, "Abbreviations: OFF\nHard Mode: OFF\nAuto Breakthrough: OFF", UDim2.fromScale(0.1, 0.76), UDim2.fromScale(0.8, 0.16), UIDictionary.colors.text, Enum.Font.GothamBold, Enum.TextXAlignment.Center)
+	create_button(settingsPanel, UIDictionary.buttons.settingAutoBreakthrough, "Auto Awakening", UDim2.fromScale(0.34, 0.58), UDim2.fromScale(0.32, 0.12), UIDictionary.colors.card, UIDictionary.colors.text)
+	create_label(settingsPanel, UIDictionary.labels.settingsValue, "Abbreviations: OFF\nHard Mode: OFF\nAuto Awakening: OFF", UDim2.fromScale(0.1, 0.76), UDim2.fromScale(0.8, 0.16), UIDictionary.colors.text, Enum.Font.GothamBold, Enum.TextXAlignment.Center)
 end
 
 local function create_main(root: Frame): ()

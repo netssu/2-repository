@@ -44,6 +44,7 @@ end
 local playerDataStore = DataStoreService:GetDataStore(get_data_store_name())
 local playerData: {[Player]: PlayerDataTemplate.PlayerData} = {}
 local lastTrainAt: {[Player]: number} = {}
+local lastMeditateAt: {[Player]: number} = {}
 local repeatableInFlight: {[Player]: string} = {}
 local sessionLockIdByPlayer = {}
 local remoteFolder: Folder? = nil
@@ -430,6 +431,9 @@ local function get_world_upgrade_state(data: PlayerDataTemplate.PlayerData, worl
 		storyRuns = 0,
 		unlockedRepeatables = {},
 		removedRepeatables = {},
+		repeatableSlotCap = 3,
+		chapterFlags = {},
+		upgradeFlags = {},
 		permanent = {},
 	}
 
@@ -439,6 +443,9 @@ local function get_world_upgrade_state(data: PlayerDataTemplate.PlayerData, worl
 	local state = data.upgrades[worldId]
 	state.unlockedRepeatables = state.unlockedRepeatables or deep_copy(defaults.unlockedRepeatables or {})
 	state.removedRepeatables = state.removedRepeatables or deep_copy(defaults.removedRepeatables or {})
+	state.repeatableSlotCap = state.repeatableSlotCap or defaults.repeatableSlotCap or 3
+	state.chapterFlags = state.chapterFlags or deep_copy(defaults.chapterFlags or {})
+	state.upgradeFlags = state.upgradeFlags or deep_copy(defaults.upgradeFlags or {})
 	state.permanent = state.permanent or deep_copy(defaults.permanent or {})
 	state.stage = state.stage or 0
 	state.storyRuns = state.storyRuns or 0
@@ -478,6 +485,54 @@ local function get_total_repeatable_completions(data: PlayerDataTemplate.PlayerD
 	return total
 end
 
+local function has_upgrade_flags(state: any, requiredFlags: {string}?): boolean
+	if not requiredFlags then
+		return true
+	end
+
+	local flags = state.upgradeFlags or {}
+	for _, flagId in requiredFlags do
+		if flags[flagId] ~= true then
+			return false
+		end
+	end
+	return true
+end
+
+local function get_requirement_item_count(data: PlayerDataTemplate.PlayerData, itemId: string): number
+	local inventory = data.inventory or {}
+	local stacks = inventory.itemStacks or {}
+	return stacks[itemId] or 0
+end
+
+local function has_required_items(data: PlayerDataTemplate.PlayerData, requiredItems: {[string]: number}?): boolean
+	if not requiredItems then
+		return true
+	end
+
+	for itemId, amount in requiredItems do
+		if get_requirement_item_count(data, itemId) < math.max(math.floor(amount), 0) then
+			return false
+		end
+	end
+
+	return true
+end
+
+local function consume_required_items(data: PlayerDataTemplate.PlayerData, requiredItems: {[string]: number}?): ()
+	if not requiredItems then
+		return
+	end
+
+	ensure_inventory_state(data)
+	for itemId, amount in requiredItems do
+		local cost = math.max(math.floor(amount), 0)
+		if cost > 0 then
+			data.inventory.itemStacks[itemId] = math.max((data.inventory.itemStacks[itemId] or 0) - cost, 0)
+		end
+	end
+end
+
 local function apply_stat_changes(data: PlayerDataTemplate.PlayerData, statChanges: {[string]: number}?, sign: number): ()
 	if not statChanges then
 		return
@@ -506,6 +561,21 @@ local function is_quest_available(data: PlayerDataTemplate.PlayerData, quest: Qu
 				return false, "No story chapter available right now."
 			end
 
+			local stageInfo = QuestDictionary.get_jjk_story_stage(nextRun)
+			local requiredItems = if stageInfo and stageInfo.requiredItems then stageInfo.requiredItems else quest.requiredItems
+			local requiredUpgradeFlags = if stageInfo and stageInfo.requiredUpgradeFlags then stageInfo.requiredUpgradeFlags else quest.requiredUpgradeFlags
+			local requiredRuns = if stageInfo and stageInfo.requiredRepeatableRuns then stageInfo.requiredRepeatableRuns else quest.requiredRepeatableRuns
+
+			if requiredRuns and get_total_repeatable_completions(data) < requiredRuns then
+				return false, "No story chapter available right now."
+			end
+			if not has_upgrade_flags(state, requiredUpgradeFlags) then
+				return false, "Story path blocked."
+			end
+			if not has_required_items(data, requiredItems) then
+				return false, "Story chapter requirements are not ready."
+			end
+
 			return true, ""
 		end
 
@@ -515,6 +585,12 @@ local function is_quest_available(data: PlayerDataTemplate.PlayerData, quest: Qu
 			end
 			if state.stage < (quest.minUpgradeStage or 0) then
 				return false, "Unavailable."
+			end
+			if not has_upgrade_flags(state, quest.requiredUpgradeFlags) then
+				return false, "Unavailable."
+			end
+			if not has_required_items(data, quest.requiredItems) then
+				return false, "Requirements not met."
 			end
 		end
 	end
@@ -529,6 +605,10 @@ local function apply_jjk_story_upgrade(data: PlayerDataTemplate.PlayerData, ques
 	local stageInfo = QuestDictionary.get_jjk_story_stage(state.storyRuns)
 	if stageInfo then
 		state.stage = math.max(state.stage, stageInfo.stage)
+		state.chapterFlags["chapter_" .. tostring(stageInfo.chapter)] = true
+		if stageInfo.setRepeatableSlotCap then
+			state.repeatableSlotCap = math.max(state.repeatableSlotCap or 0, stageInfo.setRepeatableSlotCap)
+		end
 		for _, questId in stageInfo.unlockRepeatables or {} do
 			add_unique(state.unlockedRepeatables, questId)
 		end
@@ -536,8 +616,14 @@ local function apply_jjk_story_upgrade(data: PlayerDataTemplate.PlayerData, ques
 			add_unique(state.removedRepeatables, questId)
 			remove_value(state.unlockedRepeatables, questId)
 		end
+		for _, flagId in stageInfo.rewardUpgradeFlags or {} do
+			state.upgradeFlags[flagId] = true
+		end
 	else
 		state.stage = math.max(state.stage, quest.setUpgradeStage or state.stage)
+		if quest.setRepeatableSlotCap then
+			state.repeatableSlotCap = math.max(state.repeatableSlotCap or 0, quest.setRepeatableSlotCap)
+		end
 		for _, questId in quest.unlockRepeatables or {} do
 			add_unique(state.unlockedRepeatables, questId)
 		end
@@ -545,9 +631,12 @@ local function apply_jjk_story_upgrade(data: PlayerDataTemplate.PlayerData, ques
 			add_unique(state.removedRepeatables, questId)
 			remove_value(state.unlockedRepeatables, questId)
 		end
+		for _, flagId in quest.rewardUpgradeFlags or {} do
+			state.upgradeFlags[flagId] = true
+		end
 	end
 
-	return stageInfo and stageInfo.description or "Jujutsu story upgraded."
+	return (stageInfo and (stageInfo.chapterTitle .. " - " .. stageInfo.chapterText)) or "Jujutsu story upgraded."
 end
 
 local function save_player_data(player: Player): boolean
@@ -681,8 +770,10 @@ local function ensure_inventory_state(data: PlayerDataTemplate.PlayerData): ()
 		for _, itemId in starterIds do
 			local itemDef = ItemDictionary.get_item(itemId)
 			if itemDef then
-				local amount = if itemDef.category == "Consumable" then 2 else 1
-				inventory.itemStacks[itemId] = amount
+				local amount = if itemDef.category == "Consumable" then 2 elseif itemDef.category == "Equipment" then 1 else 0
+				if amount > 0 then
+					inventory.itemStacks[itemId] = amount
+				end
 			end
 		end
 	end
@@ -741,6 +832,18 @@ local function apply_upgrade_level_bonus(data: PlayerDataTemplate.PlayerData, wo
 		end
 		if upgrade.speedPerLevel then
 			data.stats.spd += upgrade.speedPerLevel
+		end
+		if upgrade.luckPerLevel then
+			data.stats.luck += upgrade.luckPerLevel
+		end
+		if upgrade.maxStaminaPerLevel then
+			data.resources.maxStamina = math.max((data.resources.maxStamina or GameConfig.STAMINA_MAX) + upgrade.maxStaminaPerLevel, 1)
+			data.resources.stamina = math.clamp(data.resources.stamina or 0, 0, data.resources.maxStamina)
+		end
+		if upgrade.staminaPerLevel then
+			local currentStamina = data.resources.stamina or 0
+			local maxStamina = data.resources.maxStamina or GameConfig.STAMINA_MAX
+			data.resources.stamina = math.clamp(currentStamina + upgrade.staminaPerLevel, 0, maxStamina)
 		end
 		if upgrade.curseEnergyPerLevel and worldId == "JJK" and data.jjk then
 			data.jjk.curseEnergy = math.clamp((data.jjk.curseEnergy or 0) + upgrade.curseEnergyPerLevel, 0, 100)
@@ -1065,6 +1168,7 @@ local function load_player_data(player: Player): PlayerDataTemplate.PlayerData
 	unlock_progression_rewards(data)
 	playerData[player] = data
 	lastTrainAt[player] = 0
+	lastMeditateAt[player] = 0
 	if shouldGrantLoginReward then
 		grant_login_reward(player, data)
 	end
@@ -1247,7 +1351,7 @@ local function train_player(player: Player): {ok: boolean, message: string, data
 
 	return {
 		ok = true,
-		message = burstTriggered and "Focus Burst!" or levelsGained > 0 and "Level up!" or "Cultivation gained.",
+		message = burstTriggered and "Output Burst!" or levelsGained > 0 and "Level up!" or "Cursed energy refined.",
 		data = get_client_data(data),
 	}
 end
@@ -1277,8 +1381,7 @@ local function get_damage_after_defense(rawDamage: number, defense: number): num
 end
 
 local function get_crit_chance(data: PlayerDataTemplate.PlayerData): number
-	local bonus = if list_has(data.abilitiesUnlocked, "SharinganPerception") then 0.15 else 0
-	return math.clamp((data.stats.luck or 0) / 1000 + bonus, 0, 0.4)
+	return math.clamp((data.stats.luck or 0) / 1000, 0, 0.4)
 end
 
 local function get_dodge_chance(data: PlayerDataTemplate.PlayerData): number
@@ -1388,7 +1491,7 @@ local function resolve_standard_battle(player: Player, data: PlayerDataTemplate.
 	local roundsToWin = math.max(math.ceil(enemy.hp / math.max(playerDamage, 1)), 1)
 	local enemyDamage = get_damage_after_defense(enemy.atk, data.stats.def or 0)
 	local expectedIncomingDamage = enemyDamage * roundsToWin * (1 - get_dodge_chance(data))
-	if ability and (ability.id == "CursedVeil" or ability.id == "SagesGuard") then
+	if ability and ability.id == "CursedVeil" then
 		expectedIncomingDamage *= 0.5
 	end
 	if backlash then
@@ -1527,6 +1630,7 @@ local function quest_action(player: Player, questId: string): {ok: boolean, mess
 	local currentProgress = questProgress[quest.id] or 0
 	local isClaimed = table.find(claimedQuests, quest.id) ~= nil
 	local storyRunCount = if data.world == "JJK" and quest.questType == "Story" then get_jjk_upgrade_state(data).storyRuns else 0
+	local nextStoryStageInfo = if data.world == "JJK" and quest.questType == "Story" then QuestDictionary.get_jjk_story_stage(storyRunCount + 1) else nil
 
 	if quest.repeatable then
 		local activeRepeatable = repeatableInFlight[player]
@@ -1539,39 +1643,60 @@ local function quest_action(player: Player, questId: string): {ok: boolean, mess
 		end
 
 		repeatableInFlight[player] = quest.id
-		if not can_pay_resource(data, "stamina", quest.staminaChange) or not can_pay_resource(data, "food", quest.foodChange) or not can_pay_resource(data, "knowledge", quest.knowledgeChange) then
-			repeatableInFlight[player] = nil
+		local ok, result = pcall(function()
+			if not has_required_items(data, quest.requiredItems) then
+				return {
+					ok = false,
+					message = "Requirements not met.",
+					data = get_client_data(data),
+				}
+			end
+
+			if not can_pay_resource(data, "stamina", quest.staminaChange) or not can_pay_resource(data, "food", quest.foodChange) or not can_pay_resource(data, "knowledge", quest.knowledgeChange) then
+				return {
+					ok = false,
+					message = "Not enough resources.",
+					data = get_client_data(data),
+				}
+			end
+
+			consume_required_items(data, quest.requiredItems)
+			change_resource(data, "stamina", quest.staminaChange)
+			change_resource(data, "food", quest.foodChange)
+			change_resource(data, "knowledge", quest.knowledgeChange)
+			apply_stat_changes(data, quest.statRewards, 1)
+			questProgress[quest.id] = (questProgress[quest.id] or 0) + 1
+			grant_quest_item_rewards(data, quest.rewardItems)
+
+			grant_world_souls(data, quest.rewardSouls)
+			data.progress.questsCompleted += 1
+			local repeatableExp = quest.rewardExp
+			if data.moralPath == "Protector" then
+				repeatableExp = math.floor(repeatableExp * (1 + GameConfig.PROTECTOR_QUEST_EXP_BONUS))
+			end
+			add_player_exp(player, data, repeatableExp)
+
+			apply_player_attributes(player, data)
+			fire_data_changed(player)
+
+			return {
+				ok = true,
+				message = quest.displayName .. " completed.",
+				data = get_client_data(data),
+			}
+		end)
+
+		repeatableInFlight[player] = nil
+		if not ok then
+			warn("Repeatable action failed for " .. player.Name .. ": " .. tostring(result))
 			return {
 				ok = false,
-				message = "Not enough resources.",
+				message = "Repeatable failed. Try again.",
 				data = get_client_data(data),
 			}
 		end
 
-		change_resource(data, "stamina", quest.staminaChange)
-		change_resource(data, "food", quest.foodChange)
-		change_resource(data, "knowledge", quest.knowledgeChange)
-		apply_stat_changes(data, quest.statRewards, 1)
-		questProgress[quest.id] = (questProgress[quest.id] or 0) + 1
-		grant_quest_item_rewards(data, quest.rewardItems)
-
-		grant_world_souls(data, quest.rewardSouls)
-		data.progress.questsCompleted += 1
-		local repeatableExp = quest.rewardExp
-		if data.moralPath == "Protector" then
-			repeatableExp = math.floor(repeatableExp * (1 + GameConfig.PROTECTOR_QUEST_EXP_BONUS))
-		end
-		add_player_exp(player, data, repeatableExp)
-
-		apply_player_attributes(player, data)
-		fire_data_changed(player)
-		repeatableInFlight[player] = nil
-
-		return {
-			ok = true,
-			message = quest.displayName .. " completed.",
-			data = get_client_data(data),
-		}
+		return result :: any
 	end
 
 	if not quest.repeatable and not quest.maxCompletions and (table.find(data.storyQuests, quest.id) or isClaimed) then
@@ -1623,8 +1748,18 @@ local function quest_action(player: Player, questId: string): {ok: boolean, mess
 		}
 	end
 
+	local requiredItems = if nextStoryStageInfo and nextStoryStageInfo.requiredItems then nextStoryStageInfo.requiredItems else quest.requiredItems
+	if not quest.repeatable and not has_required_items(data, requiredItems) then
+		return {
+			ok = false,
+			message = "Story chapter requirements are not ready.",
+			data = get_client_data(data),
+		}
+	end
+
 	if not quest.repeatable then
 		apply_stat_changes(data, quest.statCosts, -1)
+		consume_required_items(data, requiredItems)
 	end
 
 	apply_stat_changes(data, quest.statRewards, 1)
@@ -1642,6 +1777,11 @@ local function quest_action(player: Player, questId: string): {ok: boolean, mess
 	questProgress[quest.id] = 0
 	if quest.maxCompletions then
 		local upgradeMessage = apply_jjk_story_upgrade(data, quest)
+		local completedStage = QuestDictionary.get_jjk_story_stage(get_jjk_upgrade_state(data).storyRuns)
+		if completedStage then
+			grant_quest_item_rewards(data, completedStage.rewardItems)
+			apply_story_upgrade_unlocks(data, data.world, completedStage.unlockUpgrades)
+		end
 		table.insert(data.storyQuests, quest.id .. "_" .. tostring(get_jjk_upgrade_state(data).storyRuns))
 		if get_jjk_upgrade_state(data).storyRuns >= quest.maxCompletions then
 			table.insert(claimedQuests, quest.id)
@@ -1821,10 +1961,11 @@ local function choose_moral_path(player: Player, data: PlayerDataTemplate.Player
 	unlock_progression_rewards(data)
 	fire_data_changed(player)
 	save_player_data(player)
+	local pathName = if moralPath == "Protector" then "Jujutsu Sorcerer" else "Curse User"
 
 	return {
 		ok = true,
-		message = moralPath .. " path chosen.",
+		message = pathName .. " path chosen.",
 		data = get_client_data(data),
 	}
 end
@@ -1990,14 +2131,25 @@ local function player_action(player: Player, actionName: string): {ok: boolean, 
 		data.battle.selectedTier = math.clamp(math.floor(tierNumber), 1, #GameConfig.BATTLE_TIERS)
 		message = "Battle tier set to " .. tostring(data.battle.selectedTier) .. "."
 	elseif actionName == "Cultivate" then
-		if not can_pay_resource(data, "stamina", -GameConfig.CULTIVATE_STAMINA_COST) then
+		local nowClock = os.clock()
+		local lastMeditateClock = lastMeditateAt[player] or 0
+		if nowClock - lastMeditateClock < (GameConfig.MEDITATE_DELAY_SECONDS or 1) then
 			return {
 				ok = false,
-				message = "Not enough stamina. Use Rest.",
+				message = "Meditation is not ready yet.",
 				data = get_client_data(data),
 			}
 		end
 
+		if not can_pay_resource(data, "stamina", -GameConfig.CULTIVATE_STAMINA_COST) then
+			return {
+				ok = false,
+				message = "Not enough stamina. Use recovery repeatables first.",
+				data = get_client_data(data),
+			}
+		end
+
+		lastMeditateAt[player] = nowClock
 		local cultivation = data.cultivation
 		local qiGain = GameConfig.CULTIVATE_QI_PER_TICK * (cultivation.manualMultiplier or 1)
 		change_resource(data, "stamina", -GameConfig.CULTIVATE_STAMINA_COST)
@@ -2006,8 +2158,8 @@ local function player_action(player: Player, actionName: string): {ok: boolean, 
 		if data.world == "JJK" and data.jjk then
 			data.jjk.curseEnergy = math.clamp((data.jjk.curseEnergy or 0) + GameConfig.JJK_CURSE_ENERGY_PER_TAP, 0, 100)
 		end
-		data.currentAction = "Cultivate"
-		message = "Cultivation gained."
+		data.currentAction = "Idle"
+		message = "Meditation refined cursed energy."
 	elseif actionName == "Rest" then
 		change_resource(data, "stamina", GameConfig.REST_STAMINA_PER_TICK)
 		change_resource(data, "food", 1)
@@ -2047,7 +2199,7 @@ local function player_action(player: Player, actionName: string): {ok: boolean, 
 		if qi < qiRequired then
 			return {
 				ok = false,
-				message = "Not enough Qi for breakthrough.",
+				message = "Not enough CE for awakening.",
 				data = get_client_data(data),
 			}
 		end
@@ -2056,7 +2208,7 @@ local function player_action(player: Player, actionName: string): {ok: boolean, 
 		if (cultivation.realmIndex or 1) >= maxRealm and (cultivation.stage or 1) >= 9 then
 			return {
 				ok = false,
-				message = "Peak realm reached.",
+				message = "Special Grade ceiling reached.",
 				data = get_client_data(data),
 			}
 		end
@@ -2071,10 +2223,10 @@ local function player_action(player: Player, actionName: string): {ok: boolean, 
 			end
 			cultivation.qiRequired = math.max(100, math.floor(qiRequired * 1.35))
 			add_player_exp(player, data, GameConfig.TRAIN_EXP_PER_TICK * 4)
-			message = "Breakthrough succeeded."
+			message = "Awakening succeeded."
 		else
 			cultivation.qi = math.floor(qi * (1 - GameConfig.BREAKTHROUGH_QI_LOSS_LIGHT))
-			message = "Breakthrough failed."
+			message = "Awakening failed."
 		end
 
 		data.currentAction = "Idle"
@@ -2143,6 +2295,7 @@ local function on_player_removing(player: Player): ()
 	repeatableInFlight[player] = nil
 	playerData[player] = nil
 	lastTrainAt[player] = nil
+	lastMeditateAt[player] = nil
 end
 
 local function connect_remotes(): ()
@@ -2228,10 +2381,6 @@ local function start_progress_loop(): ()
 
 				if data.currentAction == "Rest" then
 					change_resource(data, "stamina", GameConfig.REST_STAMINA_PER_TICK)
-				elseif data.currentAction == "Cultivate" then
-					local cultivation = data.cultivation
-					cultivation.qi = math.min((cultivation.qi or 0) + GameConfig.CULTIVATE_QI_PER_TICK, cultivation.qiRequired or 100)
-					add_player_exp(player, data, math.floor(GameConfig.IDLE_EXP_PER_MINUTE / 60))
 				elseif data.currentAction == "Work" and can_pay_resource(data, "stamina", -GameConfig.WORK_STAMINA_COST) then
 					change_resource(data, "stamina", -GameConfig.WORK_STAMINA_COST)
 					change_resource(data, "gold", GameConfig.WORK_GOLD_GAIN)
