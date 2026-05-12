@@ -5,8 +5,7 @@ local AnimeJJK = {
 	initialUpgradeState = {
 		stage = 0,
 		storyRuns = 0,
-		activeRepeatable = "CryLoudly",
-		unlockedRepeatables = {"CryLoudly", "Sleep"},
+		unlockedRepeatables = {"LookAround", "CryLoudly", "Sleep", "WiggleAround"},
 		removedRepeatables = {},
 		permanent = {
 			cursedBody = 0,
@@ -15,10 +14,17 @@ local AnimeJJK = {
 		},
 	},
 	repeatableOrder = {
+		"LookAround",
 		"CryLoudly",
 		"Sleep",
 		"WiggleAround",
+		"WanderHalls",
+		"ShadowDrill",
 		"ExorciseGrade4",
+		"ArchiveResearch",
+		"BarrierPractice",
+		"SquadPatrol",
+		"BlackFlashFocus",
 	},
 	equipmentSlots = {
 		"head",

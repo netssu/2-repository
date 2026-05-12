@@ -5,8 +5,6 @@ local SELECT_TEXT_COLOR = Color3.fromRGB(150, 255, 175)
 
 local WORLD_ORDER = {
 	"JJK",
-	"Naruto",
-	"Onepiece",
 }
 
 local WORLD_CONTENT = {
@@ -14,14 +12,6 @@ local WORLD_CONTENT = {
 		buttonText = "SELECT",
 		buttonTextColor = SELECT_TEXT_COLOR,
 		infoText = "World: Jujutsu\nCultivation:\nMortal IX\nPVP Battles Won: 0\nQuests Completed: 0\nWorld Souls: 0\nPlaytime: 0",
-	},
-	Naruto = {
-		buttonText = "LOCKED",
-		infoText = "World: Naruto\nCultivation:\nMortal I\nStatus: Locked\nFoundation\nBuy Slot: Later",
-	},
-	Onepiece = {
-		buttonText = "LOCKED",
-		infoText = "World: One Piece\nCultivation:\nMortal I\nStatus: Locked\nFoundation\nBuy Slot: Later",
 	},
 }
 
@@ -116,6 +106,15 @@ local function set_locked(card, locked)
 			child.AutoButtonColor = not locked
 		end
 	end
+end
+
+local function hide_card(card)
+	if not card then
+		return
+	end
+
+	card.Visible = false
+	set_locked(card, true)
 end
 
 local function configure_card(worldRoot, worldId)
@@ -246,10 +245,8 @@ function CharacterSelectionController.setup(hud, onJjkSelected)
 
 	reorder_cards(cards)
 	configure_card(cards.JJK, "JJK")
-	configure_card(cards.Naruto, "Naruto")
-	configure_card(cards.Onepiece, "Onepiece")
-	set_locked(cards.Naruto, true)
-	set_locked(cards.Onepiece, true)
+	hide_card(cards.Naruto)
+	hide_card(cards.Onepiece)
 
 	if cards.JJK then
 		set_locked(cards.JJK, false)

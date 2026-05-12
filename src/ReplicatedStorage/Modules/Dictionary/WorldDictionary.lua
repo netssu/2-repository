@@ -19,7 +19,6 @@ export type WorldDefinition = {
 
 WorldDictionary.order = {
 	"JJK",
-	"Naruto",
 }
 
 WorldDictionary.items = {
@@ -37,21 +36,6 @@ WorldDictionary.items = {
 		darkColor = Color3.fromRGB(34, 25, 50),
 		trainingObject = "Cursed Dummy",
 		mechanicName = "Cursed Energy",
-	},
-	Naruto = {
-		id = "Naruto",
-		displayName = "Naruto",
-		shortName = "Naruto",
-		active = false,
-		difficulty = "Normal",
-		startingClass = "Academy Genin",
-		powerSystem = "Chakra + Jutsu + Clans",
-		vibe = "Ninja village progression",
-		statusText = "Foundation Slot",
-		themeColor = Color3.fromRGB(42, 132, 230),
-		darkColor = Color3.fromRGB(18, 42, 74),
-		trainingObject = "Wooden Post",
-		mechanicName = "Chakra",
 	},
 }
 

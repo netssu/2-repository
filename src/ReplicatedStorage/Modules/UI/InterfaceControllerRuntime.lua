@@ -48,6 +48,10 @@ local currentData: any = nil
 local currentPage: string = UIDictionary.pages.options
 local hasSelectedSave: boolean = false
 local run_player_action: any = nil
+local pendingButtons: {[GuiButton]: boolean} = {}
+local pendingQuestIds: {[string]: boolean} = {}
+local pendingRepeatableQuestId: string? = nil
+local optionButtonQuestByName: {[string]: string} = {}
 
 ------------------//FUNCTIONS
 local function get_hud_child(childName: string): Instance?
@@ -195,7 +199,6 @@ local function get_mechanic_text(data: any): string
 	if data.world == "JJK" and data.jjk then
 		return "Cursed Energy: " .. tostring(math.floor(data.jjk.curseEnergy)) .. "% | Rebirth: " .. tostring(data.rebirthCount or 0)
 	end
-	if data.world == "Naruto" and data.naruto then return "Chakra: Foundation" end
 	return "No mechanic"
 end
 
@@ -248,12 +251,21 @@ local function deep_copy(value: any): any
 	return copy
 end
 
+local function ensure_repeatable_defaults(state: any, defaults: any): ()
+	local unlocked = defaults.unlockedRepeatables or {}
+	local removed = state.removedRepeatables or {}
+	for _, questId in unlocked do
+		if not list_has(state.unlockedRepeatables, questId) and not list_has(removed, questId) then
+			table.insert(state.unlockedRepeatables, questId)
+		end
+	end
+end
+
 local function get_world_upgrade_state(data: any, worldId: string): any
 	local animeModule = AnimeRegistry.get(worldId)
 	local defaults = if animeModule and animeModule.initialUpgradeState then animeModule.initialUpgradeState else {
 		stage = 0,
 		storyRuns = 0,
-		activeRepeatable = "",
 		unlockedRepeatables = {},
 		removedRepeatables = {},
 		permanent = {},
@@ -267,24 +279,14 @@ local function get_world_upgrade_state(data: any, worldId: string): any
 	state.unlockedRepeatables = state.unlockedRepeatables or deep_copy(defaults.unlockedRepeatables or {})
 	state.removedRepeatables = state.removedRepeatables or deep_copy(defaults.removedRepeatables or {})
 	state.permanent = state.permanent or deep_copy(defaults.permanent or {})
-	state.activeRepeatable = state.activeRepeatable or defaults.activeRepeatable or ""
 	state.stage = state.stage or 0
 	state.storyRuns = state.storyRuns or 0
+	ensure_repeatable_defaults(state, defaults)
 	return state
 end
 
 local function get_jjk_upgrade_state(data: any): any
 	return get_world_upgrade_state(data, "JJK")
-end
-
-local function make_repeatable_round(card: GuiObject): ()
-	local corner = card:FindFirstChild("RepeatableCircleCorner")
-	if not corner then
-		corner = Instance.new("UICorner")
-		corner.Name = "RepeatableCircleCorner"
-		corner.Parent = card
-	end
-	(corner :: UICorner).CornerRadius = UDim.new(1, 0)
 end
 
 local function set_button_text(button: GuiButton, text: string): ()
@@ -296,19 +298,106 @@ local function set_button_text(button: GuiButton, text: string): ()
 	end
 end
 
-local function get_quest_visual_state(data: any, questDef: any): (boolean, boolean, string)
-	if questDef.worldId and questDef.worldId ~= data.world then
-		return false, false, "LOCKED"
+local function get_total_repeatable_completions(data: any, QuestDictionaryLocal: any): number
+	local progressTable = data.progress and data.progress.questProgress or {}
+	local total = 0
+
+	for questId, value in progressTable do
+		local quest = QuestDictionaryLocal.get_quest(questId)
+		if quest and quest.repeatable then
+			total += math.max(tonumber(value) or 0, 0)
+		end
 	end
 
+	return total
+end
+
+local function is_story_chapter_open(data: any, questDef: any, QuestDictionaryLocal: any): boolean
+	if questDef.questType ~= "Story" or data.world ~= "JJK" then
+		return true
+	end
+
+	local state = get_jjk_upgrade_state(data)
+	if questDef.maxCompletions and (state.storyRuns or 0) >= questDef.maxCompletions then
+		return false
+	end
+
+	local nextRun = (state.storyRuns or 0) + 1
+	local requiredCompletions = QuestDictionaryLocal.get_jjk_story_requirement(nextRun)
+	if requiredCompletions == nil then
+		return true
+	end
+
+	return get_total_repeatable_completions(data, QuestDictionaryLocal) >= requiredCompletions
+end
+
+local function get_story_phase_text(data: any, questDef: any, QuestDictionaryLocal: any): string
+	local state = get_jjk_upgrade_state(data)
+	if questDef.maxCompletions and (state.storyRuns or 0) >= questDef.maxCompletions then
+		return "Story path complete."
+	end
+
+	local nextRun = (state.storyRuns or 0) + 1
+	local requiredCompletions = QuestDictionaryLocal.get_jjk_story_requirement(nextRun)
+	if requiredCompletions and not is_story_chapter_open(data, questDef, QuestDictionaryLocal) then
+		return "No story chapter available right now."
+	end
+
+	local stageInfo = QuestDictionaryLocal.get_jjk_story_stage(nextRun)
+	if stageInfo and stageInfo.description then
+		return tostring(stageInfo.description)
+	end
+
+	return "Advance the current story phase."
+end
+
+local function is_resource_blocked(data: any, questDef: any, currentProgress: number): boolean
+	local resources = data.resources or {}
+	local readyToClaimStory = questDef.questType == "Story" and currentProgress >= (questDef.requiredProgress or 1)
+
+	if readyToClaimStory and typeof(questDef.statCosts) == "table" then
+		local stats = data.stats or {}
+		for statName, amount in questDef.statCosts do
+			if (stats[statName] or 0) < amount then
+				return true
+			end
+		end
+		return false
+	end
+
+	if (questDef.staminaChange or 0) < 0 and (resources.stamina or 0) < math.abs(questDef.staminaChange) then
+		return true
+	end
+	if (questDef.foodChange or 0) < 0 and (resources.food or 0) < math.abs(questDef.foodChange) then
+		return true
+	end
+	if (questDef.knowledgeChange or 0) < 0 and (resources.knowledge or 0) < math.abs(questDef.knowledgeChange) then
+		return true
+	end
+
+	return false
+end
+
+local function get_quest_visual_state(data: any, questDef: any, questProgressValue: number, QuestDictionaryLocal: any): (boolean, boolean, string, boolean, string)
+	if questDef.worldId and questDef.worldId ~= data.world then
+		return false, false, "LOCKED", false, ""
+	end
+
+	local storyPhaseText = ""
 	if data.world == "JJK" then
 		local state = get_jjk_upgrade_state(data)
 
 		if questDef.questType == "Story" then
+			storyPhaseText = get_story_phase_text(data, questDef, QuestDictionaryLocal)
 			if questDef.maxCompletions and (state.storyRuns or 0) >= questDef.maxCompletions then
-				return true, false, "MAX"
+				return false, false, "COMPLETE", false, storyPhaseText
 			end
-			return true, true, "STORY"
+			if not is_story_chapter_open(data, questDef, QuestDictionaryLocal) then
+				return false, false, "LOCKED", false, storyPhaseText
+			end
+
+			local storyBlocked = is_resource_blocked(data, questDef, questProgressValue or 0)
+			return true, not storyBlocked, "STORY", storyBlocked, storyPhaseText
 		end
 
 		if questDef.repeatable then
@@ -316,16 +405,20 @@ local function get_quest_visual_state(data: any, questDef: any): (boolean, boole
 			local removed = list_has(state.removedRepeatables, questDef.id)
 			local stageOk = (state.stage or 0) >= (questDef.minUpgradeStage or 0)
 			if removed or not unlocked or not stageOk then
-				return false, false, "LOCKED"
+				return false, false, "LOCKED", false, storyPhaseText
 			end
-			if state.activeRepeatable == questDef.id then
-				return true, true, "ACTIVE"
+
+			if pendingRepeatableQuestId and pendingRepeatableQuestId ~= questDef.id then
+				return true, false, "WAIT", false, storyPhaseText
 			end
-			return true, false, "CYCLE"
+
+			local blocked = is_resource_blocked(data, questDef, 0)
+			return true, not blocked, "DO", blocked, storyPhaseText
 		end
 	end
 
-	return true, true, "DO"
+	local blocked = is_resource_blocked(data, questDef, questProgressValue or 0)
+	return true, not blocked, "DO", blocked, storyPhaseText
 end
 
 local function render_options_quest_button(data: any, buttonName: string, questId: string): ()
@@ -340,22 +433,17 @@ local function render_options_quest_button(data: any, buttonName: string, questI
 		return
 	end
 
-	local visible, enabled, stateText = get_quest_visual_state(data, questDef)
+	local questProgress = data.progress and data.progress.questProgress or {}
+	local currentProgress = questProgress[questId] or 0
+	local visible, enabled, stateText, resourceBlocked, storyPhaseText = get_quest_visual_state(data, questDef, currentProgress, QuestDictionaryLocal)
+	local isPending = pendingQuestIds[questId] == true or pendingButtons[button] == true
 	button.Visible = visible
-	button.Active = enabled
-	button.AutoButtonColor = enabled
-	button.BackgroundColor3 = enabled and UIDictionary.colors.darkButton or UIDictionary.colors.disabled
+	button.Active = enabled and not isPending
+	button.AutoButtonColor = enabled and not isPending
+	button.BackgroundColor3 = if isPending then UIDictionary.colors.blueAction elseif enabled then UIDictionary.colors.darkButton elseif resourceBlocked then UIDictionary.colors.redAction else UIDictionary.colors.disabled
 
-	if questDef.repeatable then
-		make_repeatable_round(button)
-	end
-
-	if questDef.questType == "Story" then
-		local state = get_jjk_upgrade_state(data)
-		set_button_text(button, questDef.displayName .. "\n" .. stateText .. " " .. tostring((state.storyRuns or 0) + 1) .. "/" .. tostring(questDef.maxCompletions or 1))
-	else
-		set_button_text(button, questDef.displayName .. "\n" .. stateText)
-	end
+	local text = if isPending then (questDef.displayName .. "...") else questDef.displayName
+	set_button_text(button, text)
 end
 
 local function render_resources(data: any): ()
@@ -405,13 +493,87 @@ end
 local function render_quests_page(data: any): ()
 	local QuestDictionaryLocal = require(dictionaryModules:WaitForChild("QuestDictionary") :: ModuleScript)
 	local questProgress = data.progress and data.progress.questProgress or {}
-	local claimedQuests = data.progress and data.progress.claimedQuests or {}
+	optionButtonQuestByName = {}
 
-	render_options_quest_button(data, UIDictionary.buttons.storyQuest, "LookAround")
-	render_options_quest_button(data, UIDictionary.buttons.cryQuest, "CryLoudly")
-	render_options_quest_button(data, UIDictionary.buttons.sleepQuest, "Sleep")
-	render_options_quest_button(data, UIDictionary.buttons.wiggleQuest, "WiggleAround")
-	render_options_quest_button(data, UIDictionary.buttons.exorciseQuest, "ExorciseGrade4")
+	local storyQuestId: string? = nil
+	local availableRepeatables = {}
+	for _, questId in QuestDictionaryLocal.order do
+		local questDef = QuestDictionaryLocal.get_quest(questId)
+		if not questDef then
+			continue
+		end
+		local currentProg = questProgress[questId] or 0
+		local visible, _, _, _, _ = get_quest_visual_state(data, questDef, currentProg, QuestDictionaryLocal)
+		if not visible then
+			continue
+		end
+
+		if questDef.questType == "Story" and not storyQuestId then
+			storyQuestId = questId
+		elseif questDef.repeatable then
+			table.insert(availableRepeatables, questId)
+		end
+	end
+
+	local storyButton = get_button(UIDictionary.buttons.storyQuest)
+	if storyButton then
+		if storyQuestId then
+			optionButtonQuestByName[UIDictionary.buttons.storyQuest] = storyQuestId
+			render_options_quest_button(data, UIDictionary.buttons.storyQuest, storyQuestId)
+		else
+			storyButton.Visible = false
+		end
+	end
+
+	local repeatableButtons = {
+		UIDictionary.buttons.cryQuest,
+		UIDictionary.buttons.sleepQuest,
+		UIDictionary.buttons.wiggleQuest,
+		UIDictionary.buttons.exorciseQuest,
+	}
+	local optionRepeatables = {}
+	local starterRepeatables = {"LookAround", "CryLoudly", "Sleep"}
+	for _, starterQuestId in starterRepeatables do
+		if list_has(availableRepeatables, starterQuestId) then
+			table.insert(optionRepeatables, starterQuestId)
+		end
+	end
+
+	local featuredQuestId: string? = nil
+	for _, questId in availableRepeatables do
+		if not list_has(starterRepeatables, questId) then
+			featuredQuestId = questId
+		end
+	end
+	if featuredQuestId and not list_has(optionRepeatables, featuredQuestId) then
+		table.insert(optionRepeatables, featuredQuestId)
+	end
+
+	if #optionRepeatables < #repeatableButtons then
+		for _, questId in availableRepeatables do
+			if not list_has(optionRepeatables, questId) then
+				table.insert(optionRepeatables, questId)
+				if #optionRepeatables >= #repeatableButtons then
+					break
+				end
+			end
+		end
+	end
+
+	for index, buttonName in repeatableButtons do
+		local questId = optionRepeatables[index]
+		local button = get_button(buttonName)
+		if not button then
+			continue
+		end
+
+		if questId then
+			optionButtonQuestByName[buttonName] = questId
+			render_options_quest_button(data, buttonName, questId)
+		else
+			button.Visible = false
+		end
+	end
 
 	for _, questId in QuestDictionaryLocal.order do
 		local questDef = QuestDictionaryLocal.get_quest(questId)
@@ -419,49 +581,43 @@ local function render_quests_page(data: any): ()
 
 		local card = get_hud_child(questId .. "Card")
 		if card then
-			local visible, enabled, stateText = get_quest_visual_state(data, questDef)
+			local currentProg = questProgress[questId] or 0
+			local visible, enabled, stateText, resourceBlocked, storyPhaseText = get_quest_visual_state(data, questDef, currentProg, QuestDictionaryLocal)
 			if card:IsA("GuiObject") then
 				card.Visible = visible
-				if questDef.repeatable then
-					make_repeatable_round(card)
-				end
 			end
-
-			local currentProg = questProgress[questId] or 0
-			local isClaimed = table.find(claimedQuests, questId) ~= nil
-			local upgradeState = get_jjk_upgrade_state(data)
 
 			local barFill = card:FindFirstChild("ProgressBar") and card.ProgressBar:FindFirstChild("ProgressFill")
 			local progressTextLabel = card:FindFirstChild("ProgressBar") and card.ProgressBar:FindFirstChild("ProgressText")
 			local actionBtn = card:FindFirstChild(questId .. "Button")
 
-			-- Update progress bar
 			if barFill and progressTextLabel then
-				local ratio = math.clamp(currentProg / questDef.requiredProgress, 0, 1)
-				barFill.Size = UDim2.fromScale(ratio, 1)
 				if questDef.questType == "Story" then
-					progressTextLabel.Text = "Run " .. tostring((upgradeState.storyRuns or 0) + 1) .. "/" .. tostring(questDef.maxCompletions or 1) .. " | " .. tostring(currentProg) .. " / " .. tostring(questDef.requiredProgress)
+					local requiredProgress = questDef.requiredProgress or 0
+					local ratio = if requiredProgress <= 0 then 1 else math.clamp(currentProg / requiredProgress, 0, 1)
+					barFill.Size = UDim2.fromScale(ratio, 1)
+					progressTextLabel.Text = storyPhaseText
 				else
-					progressTextLabel.Text = stateText .. " | " .. tostring(currentProg) .. " / " .. tostring(questDef.requiredProgress)
+					barFill.Size = UDim2.fromScale(enabled and 1 or 0, 1)
+					progressTextLabel.Text = enabled and tostring(questDef.upgradeText or "Repeatable action") or "Locked"
 				end
 			end
 
 			if actionBtn then
-				local btnText = actionBtn:FindFirstChild("ButtonText")
-				actionBtn.Active = enabled
-				actionBtn.AutoButtonColor = enabled
-				if not enabled then
-					actionBtn.BackgroundColor3 = UIDictionary.colors.disabled
-					if btnText then btnText.Text = stateText end
-				elseif isClaimed and not questDef.repeatable and not questDef.maxCompletions then
-					actionBtn.BackgroundColor3 = UIDictionary.colors.disabled
-					if btnText then btnText.Text = "COMPLETE" end
-				elseif currentProg >= questDef.requiredProgress then
-					actionBtn.BackgroundColor3 = UIDictionary.colors.gold
-					if btnText then btnText.Text = questDef.questType == "Story" and "UPGRADE" or "CLAIM" end
+				local button = actionBtn :: GuiButton
+				local isPending = pendingQuestIds[questId] == true or pendingButtons[button] == true
+				button.Active = enabled and not isPending
+				button.AutoButtonColor = enabled and not isPending
+
+				if isPending then
+					button.BackgroundColor3 = UIDictionary.colors.blueAction
+					set_button_text(button, "IN PROGRESS...")
+				elseif not enabled then
+					button.BackgroundColor3 = resourceBlocked and UIDictionary.colors.redAction or UIDictionary.colors.disabled
+					set_button_text(button, if stateText == "WAIT" then "WAIT" elseif stateText == "LOCKED" then "LOCKED" else (questDef.questType == "Story" and "STORY" or "DO"))
 				else
-					actionBtn.BackgroundColor3 = UIDictionary.colors.darkButton
-					if btnText then btnText.Text = stateText end
+					button.BackgroundColor3 = UIDictionary.colors.darkButton
+					set_button_text(button, questDef.questType == "Story" and "STORY" or "DO")
 				end
 			end
 		end
@@ -704,11 +860,14 @@ local function render_static_pages(data: any): ()
 	local battle = data.battle or {}
 	local jjkUpgrades = get_jjk_upgrade_state(data)
 	local permanent = jjkUpgrades.permanent or {}
+	local QuestDictionaryLocal = require(dictionaryModules:WaitForChild("QuestDictionary") :: ModuleScript)
+	local storyQuest = QuestDictionaryLocal.get_quest("SchoolTrial")
+	local storyPhaseText = if storyQuest then get_story_phase_text(data, storyQuest, QuestDictionaryLocal) else "Story path locked."
 	set_label_text(UIDictionary.labels.guildValue,    "Moral Path: " .. tostring(data.moralPath or "Unchosen") .. "\nProtector: +15% quest EXP\nConqueror: +20% battle EXP")
 	set_label_text(UIDictionary.labels.shopValue,     "World Souls: " .. tostring(data.worldSouls) .. "\nDivine Tokens: " .. tostring(data.divineTokens) .. "\nRebirth Shards: " .. tostring(data.rebirthShards) .. "\nSmall EXP Potion, Focus Charge, and Rebirth are connected.")
 	set_label_text(UIDictionary.labels.miscValue,     "Score: " .. tostring(leaderboardScore) .. "\nDaily Quests: " .. tostring(dailyDone) .. "/3\nLast Battle: " .. tostring(battle.lastResult or "None") .. " " .. tostring(battle.lastEnemy or "") .. "\nGod: " .. tostring(battle.lastGodTaunt or "Watching."))
 	set_label_text(UIDictionary.labels.settingsValue, "Abbreviations: " .. format_bool(data.settings.abbreviations) .. "\nHard Mode: " .. format_bool(data.settings.hardMode) .. "\nAuto Breakthrough: " .. format_bool(data.settings.autoBreakthrough))
-	set_label_text(UIDictionary.labels.upgradeStatus, "JJK Stage: " .. tostring(jjkUpgrades.stage or 0) .. "\nStory Runs: " .. tostring(jjkUpgrades.storyRuns or 0) .. "/4\nActive Repeatable: " .. tostring(jjkUpgrades.activeRepeatable or "None") .. "\nBody " .. tostring(permanent.cursedBody or 0) .. " | Control " .. tostring(permanent.cursedControl or 0) .. " | Focus " .. tostring(permanent.cooldownFocus or 0))
+	set_label_text(UIDictionary.labels.upgradeStatus, "JJK Stage: " .. tostring(jjkUpgrades.stage or 0) .. "\nStory Phase: " .. storyPhaseText .. "\nBody " .. tostring(permanent.cursedBody or 0) .. " | Control " .. tostring(permanent.cursedControl or 0) .. " | Focus " .. tostring(permanent.cooldownFocus or 0))
 end
 
 local function render_data(data: any): ()
@@ -764,6 +923,125 @@ local function run_quest(questId: string): ()
 	apply_remote_result(invoke_remote(questActionRemote, questId))
 end
 
+local function ensure_button_progress_fill(button: GuiButton): Frame
+	local progressContainer = button:FindFirstChild("DelayProgress")
+	if not progressContainer or not progressContainer:IsA("Frame") then
+		progressContainer = Instance.new("Frame")
+		progressContainer.Name = "DelayProgress"
+		progressContainer.BackgroundColor3 = Color3.fromRGB(22, 26, 36)
+		progressContainer.BackgroundTransparency = 0.45
+		progressContainer.BorderSizePixel = 0
+		progressContainer.ClipsDescendants = true
+		progressContainer.Size = UDim2.fromScale(1, 1)
+		progressContainer.ZIndex = button.ZIndex + 1
+		progressContainer.Visible = false
+		progressContainer.Parent = button
+	end
+
+	local fill = progressContainer:FindFirstChild("Fill")
+	if not fill or not fill:IsA("Frame") then
+		fill = Instance.new("Frame")
+		fill.Name = "Fill"
+		fill.BackgroundColor3 = UIDictionary.colors.blueAction
+		fill.BackgroundTransparency = 0.25
+		fill.BorderSizePixel = 0
+		fill.AnchorPoint = Vector2.new(1, 0)
+		fill.Position = UDim2.fromScale(1, 0)
+		fill.Size = UDim2.fromScale(0, 1)
+		fill.ZIndex = progressContainer.ZIndex + 1
+		fill.Parent = progressContainer
+	end
+
+	return fill :: Frame
+end
+
+local function run_button_delay(button: GuiButton?, delaySeconds: number, callback: () -> ()): ()
+	if not button or delaySeconds <= 0 then
+		callback()
+		return
+	end
+
+	if pendingButtons[button] then
+		return
+	end
+
+	pendingButtons[button] = true
+	task.spawn(function()
+		local fill = ensure_button_progress_fill(button)
+		local container = fill.Parent :: Frame
+		local previousActive = button.Active
+		local previousAutoButtonColor = button.AutoButtonColor
+
+		container.Visible = true
+		button.Active = false
+		button.AutoButtonColor = false
+		fill.Size = UDim2.fromScale(0, 1)
+		fill.Position = UDim2.fromScale(1, 0)
+
+		local startedAt = os.clock()
+		while true do
+			if not button:IsDescendantOf(game) then
+				break
+			end
+
+			local ratio = math.clamp((os.clock() - startedAt) / delaySeconds, 0, 1)
+			fill.Size = UDim2.fromScale(ratio, 1)
+			fill.Position = UDim2.fromScale(1 - ratio, 0)
+			if ratio >= 1 then
+				break
+			end
+			RunService.RenderStepped:Wait()
+		end
+
+		container.Visible = false
+		if button:IsDescendantOf(game) then
+			button.Active = previousActive
+			button.AutoButtonColor = previousAutoButtonColor
+		end
+		pendingButtons[button] = nil
+		callback()
+	end)
+end
+
+local function run_quest_with_visual_delay(questId: string, buttonName: string): ()
+	local QuestDictionaryLocal = require(dictionaryModules:WaitForChild("QuestDictionary") :: ModuleScript)
+	local questDef = QuestDictionaryLocal.get_quest(questId)
+	if pendingQuestIds[questId] then
+		return
+	end
+
+	if questDef and questDef.repeatable and pendingRepeatableQuestId and pendingRepeatableQuestId ~= questId then
+		return
+	end
+
+	local delaySeconds = if questDef and questDef.actionDelaySeconds then math.max(questDef.actionDelaySeconds, 0) else 0
+	local button = get_button(buttonName)
+	if button and pendingButtons[button] then
+		return
+	end
+
+	pendingQuestIds[questId] = true
+	if questDef and questDef.repeatable then
+		pendingRepeatableQuestId = questId
+	end
+	run_button_delay(button, delaySeconds, function()
+		run_quest(questId)
+		if pendingRepeatableQuestId == questId then
+			pendingRepeatableQuestId = nil
+		end
+		pendingQuestIds[questId] = nil
+	end)
+end
+
+local function run_option_quest(buttonName: string): ()
+	local questId = optionButtonQuestByName[buttonName]
+	if not questId then
+		return
+	end
+
+	run_quest_with_visual_delay(questId, buttonName)
+end
+
 local function toggle_setting(settingName: string): ()
 	if not currentData or not currentData.settings then return end
 	apply_remote_result(invoke_remote(updateSettingRemote, settingName, not currentData.settings[settingName]))
@@ -802,7 +1080,7 @@ local function connect_actions(): ()
 		local btn = get_button(questId .. "Button")
 		if btn then
 			btn.Activated:Connect(function()
-				run_quest(questId)
+				run_quest_with_visual_delay(questId, questId .. "Button")
 			end)
 		end
 	end
@@ -819,11 +1097,11 @@ local function connect_actions(): ()
 	connect_button(UIDictionary.buttons.punch,  function() run_battle_action("Punch") end)
 	connect_button(UIDictionary.buttons.whack,  function() run_battle_action("Whack") end)
 	connect_button(UIDictionary.buttons.block,  function() run_battle_action("Block") end)
-	connect_button(UIDictionary.buttons.storyQuest,  function() run_quest("LookAround") end)
-	connect_button(UIDictionary.buttons.cryQuest,    function() run_quest("CryLoudly")    end)
-	connect_button(UIDictionary.buttons.sleepQuest,  function() run_quest("Sleep")        end)
-	connect_button(UIDictionary.buttons.wiggleQuest, function() run_quest("WiggleAround") end)
-	connect_button(UIDictionary.buttons.exorciseQuest, function() run_quest("ExorciseGrade4") end)
+	connect_button(UIDictionary.buttons.storyQuest,  function() run_option_quest(UIDictionary.buttons.storyQuest) end)
+	connect_button(UIDictionary.buttons.cryQuest,    function() run_option_quest(UIDictionary.buttons.cryQuest)   end)
+	connect_button(UIDictionary.buttons.sleepQuest,  function() run_option_quest(UIDictionary.buttons.sleepQuest) end)
+	connect_button(UIDictionary.buttons.wiggleQuest, function() run_option_quest(UIDictionary.buttons.wiggleQuest) end)
+	connect_button(UIDictionary.buttons.exorciseQuest, function() run_option_quest(UIDictionary.buttons.exorciseQuest) end)
 	connect_button(UIDictionary.buttons.upgradeCursedBody, function() run_player_action("JJKUpgradecursedBody") end)
 	connect_button(UIDictionary.buttons.upgradeCursedControl, function() run_player_action("JJKUpgradecursedControl") end)
 	connect_button(UIDictionary.buttons.upgradeCooldownFocus, function() run_player_action("JJKUpgradecooldownFocus") end)

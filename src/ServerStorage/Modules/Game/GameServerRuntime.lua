@@ -44,6 +44,7 @@ end
 local playerDataStore = DataStoreService:GetDataStore(get_data_store_name())
 local playerData: {[Player]: PlayerDataTemplate.PlayerData} = {}
 local lastTrainAt: {[Player]: number} = {}
+local repeatableInFlight: {[Player]: string} = {}
 local sessionLockIdByPlayer = {}
 local remoteFolder: Folder? = nil
 local getPlayerDataRemote: RemoteFunction? = nil
@@ -119,11 +120,15 @@ end
 
 local function apply_starting_world(data: PlayerDataTemplate.PlayerData): ()
 	if data.world ~= "" then
-		if data.world == STARTING_WORLD_ID and not data.jjk then
+		if data.world ~= STARTING_WORLD_ID then
+			data.world = STARTING_WORLD_ID
+			data.abilitiesUnlocked = AbilityDictionary.get_starting_abilities(STARTING_WORLD_ID)
+			data.abilitiesEquipped = AbilityDictionary.get_default_equipped(STARTING_WORLD_ID)
+		end
+		if not data.jjk then
 			data.jjk = {
 				curseEnergy = 0,
 			}
-			data.naruto = nil
 		end
 		return
 	end
@@ -134,7 +139,6 @@ local function apply_starting_world(data: PlayerDataTemplate.PlayerData): ()
 	data.jjk = {
 		curseEnergy = 0,
 	}
-	data.naruto = nil
 end
 
 local function get_data_key(player: Player): string
@@ -409,12 +413,21 @@ local function get_anime_module(worldId: string): any
 	return AnimeRegistry.get(worldId)
 end
 
+local function ensure_repeatable_defaults(state: any, defaults: any): ()
+	local unlocked = defaults.unlockedRepeatables or {}
+	local removed = state.removedRepeatables or {}
+	for _, questId in unlocked do
+		if not list_has(state.unlockedRepeatables, questId) and not list_has(removed, questId) then
+			table.insert(state.unlockedRepeatables, questId)
+		end
+	end
+end
+
 local function get_world_upgrade_state(data: PlayerDataTemplate.PlayerData, worldId: string): any
 	local animeModule = get_anime_module(worldId)
 	local defaults = if animeModule and animeModule.initialUpgradeState then animeModule.initialUpgradeState else {
 		stage = 0,
 		storyRuns = 0,
-		activeRepeatable = "",
 		unlockedRepeatables = {},
 		removedRepeatables = {},
 		permanent = {},
@@ -427,59 +440,14 @@ local function get_world_upgrade_state(data: PlayerDataTemplate.PlayerData, worl
 	state.unlockedRepeatables = state.unlockedRepeatables or deep_copy(defaults.unlockedRepeatables or {})
 	state.removedRepeatables = state.removedRepeatables or deep_copy(defaults.removedRepeatables or {})
 	state.permanent = state.permanent or deep_copy(defaults.permanent or {})
-	state.activeRepeatable = state.activeRepeatable or defaults.activeRepeatable or ""
 	state.stage = state.stage or 0
 	state.storyRuns = state.storyRuns or 0
+	ensure_repeatable_defaults(state, defaults)
 	return state
 end
 
 local function get_jjk_upgrade_state(data: PlayerDataTemplate.PlayerData): any
 	return get_world_upgrade_state(data, "JJK")
-end
-
-local function get_available_jjk_repeatables(data: PlayerDataTemplate.PlayerData): {string}
-	local state = get_jjk_upgrade_state(data)
-	local animeJJK = AnimeRegistry.get("JJK")
-	local repeatableOrder = if animeJJK and animeJJK.repeatableOrder then animeJJK.repeatableOrder else QuestDictionary.get_repeatable_order("JJK")
-	local available = {}
-
-	for _, questId in repeatableOrder do
-		local quest = QuestDictionary.get_quest(questId)
-		if quest and list_has(state.unlockedRepeatables, questId) and not list_has(state.removedRepeatables, questId) and state.stage >= (quest.minUpgradeStage or 0) then
-			table.insert(available, questId)
-		end
-	end
-
-	return available
-end
-
-local function normalize_jjk_active_repeatable(data: PlayerDataTemplate.PlayerData): string?
-	local state = get_jjk_upgrade_state(data)
-	local available = get_available_jjk_repeatables(data)
-	if #available == 0 then
-		state.activeRepeatable = ""
-		return nil
-	end
-
-	if not list_has(available, state.activeRepeatable) then
-		state.activeRepeatable = available[1]
-	end
-
-	return state.activeRepeatable
-end
-
-local function advance_jjk_repeatable(data: PlayerDataTemplate.PlayerData): string?
-	local state = get_jjk_upgrade_state(data)
-	local available = get_available_jjk_repeatables(data)
-	if #available == 0 then
-		state.activeRepeatable = ""
-		return nil
-	end
-
-	local currentIndex = table.find(available, state.activeRepeatable) or 0
-	local nextIndex = (currentIndex % #available) + 1
-	state.activeRepeatable = available[nextIndex]
-	return state.activeRepeatable
 end
 
 local function can_pay_stat_costs(data: PlayerDataTemplate.PlayerData, statCosts: {[string]: number}?): boolean
@@ -496,6 +464,20 @@ local function can_pay_stat_costs(data: PlayerDataTemplate.PlayerData, statCosts
 	return true
 end
 
+local function get_total_repeatable_completions(data: PlayerDataTemplate.PlayerData): number
+	local progressTable = data.progress and data.progress.questProgress or {}
+	local total = 0
+
+	for questId, value in progressTable do
+		local quest = QuestDictionary.get_quest(questId)
+		if quest and quest.repeatable then
+			total += math.max(tonumber(value) or 0, 0)
+		end
+	end
+
+	return total
+end
+
 local function apply_stat_changes(data: PlayerDataTemplate.PlayerData, statChanges: {[string]: number}?, sign: number): ()
 	if not statChanges then
 		return
@@ -508,26 +490,31 @@ end
 
 local function is_quest_available(data: PlayerDataTemplate.PlayerData, quest: QuestDictionary.QuestDefinition): (boolean, string)
 	if quest.worldId and quest.worldId ~= data.world then
-		return false, "This upgrade belongs to another world."
+		return false, "Unavailable."
 	end
 
 	if data.world == "JJK" then
 		local state = get_jjk_upgrade_state(data)
 		if quest.questType == "Story" then
 			if quest.maxCompletions and state.storyRuns >= quest.maxCompletions then
-				return false, quest.displayName .. " is complete."
+				return false, "Story path complete."
 			end
+
+			local nextRun = state.storyRuns + 1
+			local requiredCompletions = QuestDictionary.get_jjk_story_requirement(nextRun)
+			if requiredCompletions and get_total_repeatable_completions(data) < requiredCompletions then
+				return false, "No story chapter available right now."
+			end
+
 			return true, ""
 		end
 
 		if quest.repeatable then
-			local activeRepeatable = normalize_jjk_active_repeatable(data)
-			if activeRepeatable ~= quest.id then
-				return false, "Circular repeatable active: " .. tostring(activeRepeatable or "none") .. "."
+			if not list_has(state.unlockedRepeatables, quest.id) or list_has(state.removedRepeatables, quest.id) then
+				return false, "Unavailable."
 			end
-
 			if state.stage < (quest.minUpgradeStage or 0) then
-				return false, "Unlock this repeatable through Story upgrades."
+				return false, "Unavailable."
 			end
 		end
 	end
@@ -560,7 +547,6 @@ local function apply_jjk_story_upgrade(data: PlayerDataTemplate.PlayerData, ques
 		end
 	end
 
-	normalize_jjk_active_repeatable(data)
 	return stageInfo and stageInfo.description or "Jujutsu story upgraded."
 end
 
@@ -705,6 +691,84 @@ end
 local function get_item_stack_amount(data: PlayerDataTemplate.PlayerData, itemId: string): number
 	ensure_inventory_state(data)
 	return data.inventory.itemStacks[itemId] or 0
+end
+
+local function add_inventory_item_stack(data: PlayerDataTemplate.PlayerData, itemId: string, amount: number): ()
+	local stackAmount = math.max(math.floor(amount), 0)
+	if stackAmount <= 0 then
+		return
+	end
+
+	ensure_inventory_state(data)
+	local itemDef = ItemDictionary.get_item(itemId)
+	if not itemDef then
+		return
+	end
+	if itemDef.worldId and itemDef.worldId ~= data.world then
+		return
+	end
+
+	data.inventory.itemStacks[itemId] = (data.inventory.itemStacks[itemId] or 0) + stackAmount
+	add_unique(data.inventory.items, itemId)
+end
+
+local function grant_quest_item_rewards(data: PlayerDataTemplate.PlayerData, rewardItems: {[string]: number}?): ()
+	if not rewardItems then
+		return
+	end
+
+	for itemId, amount in rewardItems do
+		add_inventory_item_stack(data, itemId, amount)
+	end
+end
+
+local function apply_upgrade_level_bonus(data: PlayerDataTemplate.PlayerData, worldId: string, upgradeId: string, levelCount: number): ()
+	local animeModule = get_anime_module(worldId)
+	local upgrade = animeModule and animeModule.upgrades and animeModule.upgrades[upgradeId] or nil
+	if not upgrade then
+		return
+	end
+
+	for _ = 1, math.max(levelCount, 0) do
+		if upgrade.hpPerLevel then
+			data.stats.hp += upgrade.hpPerLevel
+		end
+		if upgrade.defPerLevel then
+			data.stats.def += upgrade.defPerLevel
+		end
+		if upgrade.atkPerLevel then
+			data.stats.atk += upgrade.atkPerLevel
+		end
+		if upgrade.speedPerLevel then
+			data.stats.spd += upgrade.speedPerLevel
+		end
+		if upgrade.curseEnergyPerLevel and worldId == "JJK" and data.jjk then
+			data.jjk.curseEnergy = math.clamp((data.jjk.curseEnergy or 0) + upgrade.curseEnergyPerLevel, 0, 100)
+		end
+	end
+end
+
+local function apply_story_upgrade_unlocks(data: PlayerDataTemplate.PlayerData, worldId: string, unlockUpgrades: {string}?): ()
+	if not unlockUpgrades then
+		return
+	end
+
+	local animeModule = get_anime_module(worldId)
+	if not animeModule or not animeModule.upgrades then
+		return
+	end
+
+	local state = get_world_upgrade_state(data, worldId)
+	for _, upgradeId in unlockUpgrades do
+		local upgradeDef = animeModule.upgrades[upgradeId]
+		if upgradeDef then
+			local currentLevel = state.permanent[upgradeId] or 0
+			if currentLevel < upgradeDef.maxLevel then
+				state.permanent[upgradeId] = currentLevel + 1
+				apply_upgrade_level_bonus(data, worldId, upgradeId, 1)
+			end
+		end
+	end
 end
 
 local function apply_item_buffs(data: PlayerDataTemplate.PlayerData, buffs: {[string]: number}?, sign: number): ()
@@ -969,7 +1033,7 @@ local function grant_login_reward(player: Player, data: PlayerDataTemplate.Playe
 	end
 
 	if reward.item then
-		add_unique(data.inventory.items, reward.item)
+		add_inventory_item_stack(data, reward.item, 1)
 	end
 
 	if reward.title then
@@ -1051,25 +1115,9 @@ end
 
 local function set_world_data(data: PlayerDataTemplate.PlayerData, worldId: string): ()
 	if worldId == "JJK" then
-		data.jjk = {
+		data.jjk = data.jjk or {
 			curseEnergy = 0,
 		}
-		data.naruto = nil
-		data.onePiece = nil
-	elseif worldId == "Naruto" then
-		data.naruto = {
-			affinity = "",
-			clan = "",
-		}
-		data.jjk = nil
-		data.onePiece = nil
-	elseif worldId == "OnePiece" then
-		data.onePiece = {
-			fruitType = "",
-			crew = {},
-		}
-		data.jjk = nil
-		data.naruto = nil
 	end
 end
 
@@ -1210,12 +1258,6 @@ local function get_battle_tier(tierNumber: number): any
 end
 
 local function get_enemy_name(data: PlayerDataTemplate.PlayerData, tier: any): string
-	if data.world == "Naruto" then
-		return tier.narutoEnemy
-	elseif data.world == "OnePiece" then
-		return tier.onePieceEnemy
-	end
-
 	return tier.jjkEnemy
 end
 
@@ -1486,6 +1528,52 @@ local function quest_action(player: Player, questId: string): {ok: boolean, mess
 	local isClaimed = table.find(claimedQuests, quest.id) ~= nil
 	local storyRunCount = if data.world == "JJK" and quest.questType == "Story" then get_jjk_upgrade_state(data).storyRuns else 0
 
+	if quest.repeatable then
+		local activeRepeatable = repeatableInFlight[player]
+		if activeRepeatable then
+			return {
+				ok = false,
+				message = "Finish the current repeatable first.",
+				data = get_client_data(data),
+			}
+		end
+
+		repeatableInFlight[player] = quest.id
+		if not can_pay_resource(data, "stamina", quest.staminaChange) or not can_pay_resource(data, "food", quest.foodChange) or not can_pay_resource(data, "knowledge", quest.knowledgeChange) then
+			repeatableInFlight[player] = nil
+			return {
+				ok = false,
+				message = "Not enough resources.",
+				data = get_client_data(data),
+			}
+		end
+
+		change_resource(data, "stamina", quest.staminaChange)
+		change_resource(data, "food", quest.foodChange)
+		change_resource(data, "knowledge", quest.knowledgeChange)
+		apply_stat_changes(data, quest.statRewards, 1)
+		questProgress[quest.id] = (questProgress[quest.id] or 0) + 1
+		grant_quest_item_rewards(data, quest.rewardItems)
+
+		grant_world_souls(data, quest.rewardSouls)
+		data.progress.questsCompleted += 1
+		local repeatableExp = quest.rewardExp
+		if data.moralPath == "Protector" then
+			repeatableExp = math.floor(repeatableExp * (1 + GameConfig.PROTECTOR_QUEST_EXP_BONUS))
+		end
+		add_player_exp(player, data, repeatableExp)
+
+		apply_player_attributes(player, data)
+		fire_data_changed(player)
+		repeatableInFlight[player] = nil
+
+		return {
+			ok = true,
+			message = quest.displayName .. " completed.",
+			data = get_client_data(data),
+		}
+	end
+
 	if not quest.repeatable and not quest.maxCompletions and (table.find(data.storyQuests, quest.id) or isClaimed) then
 		return {
 			ok = false,
@@ -1497,7 +1585,7 @@ local function quest_action(player: Player, questId: string): {ok: boolean, mess
 	if quest.maxCompletions and storyRunCount >= quest.maxCompletions then
 		return {
 			ok = false,
-			message = quest.displayName .. " is fully upgraded.",
+			message = "Story path complete.",
 			data = get_client_data(data),
 		}
 	end
@@ -1522,7 +1610,7 @@ local function quest_action(player: Player, questId: string): {ok: boolean, mess
 
 		return {
 			ok = true,
-			message = currentProgress >= requiredProgress and (quest.displayName .. " ready to claim.") or (quest.displayName .. " progress: " .. tostring(currentProgress) .. "/" .. tostring(requiredProgress)),
+			message = "Story progress advanced.",
 			data = get_client_data(data),
 		}
 	end
@@ -1548,32 +1636,29 @@ local function quest_action(player: Player, questId: string): {ok: boolean, mess
 		questExp = math.floor(questExp * (1 + GameConfig.PROTECTOR_QUEST_EXP_BONUS))
 	end
 	add_player_exp(player, data, questExp)
+	grant_quest_item_rewards(data, quest.rewardItems)
+	apply_story_upgrade_unlocks(data, data.world, quest.unlockUpgrades)
 
-	if quest.repeatable then
-		questProgress[quest.id] = 0
-		advance_jjk_repeatable(data)
-	else
-		questProgress[quest.id] = 0
-		if quest.maxCompletions then
-			local upgradeMessage = apply_jjk_story_upgrade(data, quest)
-			table.insert(data.storyQuests, quest.id .. "_" .. tostring(get_jjk_upgrade_state(data).storyRuns))
-			if get_jjk_upgrade_state(data).storyRuns >= quest.maxCompletions then
-				table.insert(claimedQuests, quest.id)
-			end
-			save_player_data(player)
-			apply_player_attributes(player, data)
-			fire_data_changed(player)
-			return {
-				ok = true,
-				message = upgradeMessage,
-				data = get_client_data(data),
-			}
-		else
+	questProgress[quest.id] = 0
+	if quest.maxCompletions then
+		local upgradeMessage = apply_jjk_story_upgrade(data, quest)
+		table.insert(data.storyQuests, quest.id .. "_" .. tostring(get_jjk_upgrade_state(data).storyRuns))
+		if get_jjk_upgrade_state(data).storyRuns >= quest.maxCompletions then
 			table.insert(claimedQuests, quest.id)
-			table.insert(data.storyQuests, quest.id)
 		end
 		save_player_data(player)
+		apply_player_attributes(player, data)
+		fire_data_changed(player)
+		return {
+			ok = true,
+			message = upgradeMessage,
+			data = get_client_data(data),
+		}
+	else
+		table.insert(claimedQuests, quest.id)
+		table.insert(data.storyQuests, quest.id)
 	end
+	save_player_data(player)
 
 	apply_player_attributes(player, data)
 	fire_data_changed(player)
@@ -1701,22 +1786,7 @@ local function buy_world_upgrade(player: Player, data: PlayerDataTemplate.Player
 	data.worldSouls -= soulCost
 	data.rebirthShards -= shardCost
 	state.permanent[upgradeId] = nextLevel
-
-	if upgrade.hpPerLevel then
-		data.stats.hp += upgrade.hpPerLevel
-	end
-	if upgrade.defPerLevel then
-		data.stats.def += upgrade.defPerLevel
-	end
-	if upgrade.atkPerLevel then
-		data.stats.atk += upgrade.atkPerLevel
-	end
-	if upgrade.speedPerLevel then
-		data.stats.spd += upgrade.speedPerLevel
-	end
-	if upgrade.curseEnergyPerLevel and data.jjk then
-		data.jjk.curseEnergy = math.clamp((data.jjk.curseEnergy or 0) + upgrade.curseEnergyPerLevel, 0, 100)
-	end
+	apply_upgrade_level_bonus(data, worldId, upgradeId, 1)
 
 	apply_player_attributes(player, data)
 	fire_data_changed(player)
@@ -2070,6 +2140,7 @@ local function on_player_removing(player: Player): ()
 		save_player_data(player)
 	end
 	release_session_lock(player)
+	repeatableInFlight[player] = nil
 	playerData[player] = nil
 	lastTrainAt[player] = nil
 end

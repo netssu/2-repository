@@ -170,6 +170,20 @@ local function add_stroke(parent: Instance, color: Color3, thickness: number): U
 	}, parent) :: UIStroke
 end
 
+local function add_corner(parent: Instance, radiusPx: number): UICorner
+	return create_instance("UICorner", {
+		CornerRadius = UDim.new(0, radiusPx),
+	}, parent) :: UICorner
+end
+
+local function add_square_constraint(parent: Instance): UIAspectRatioConstraint
+	return create_instance("UIAspectRatioConstraint", {
+		AspectRatio = 1,
+		DominantAxis = Enum.DominantAxis.Height,
+		AspectType = Enum.AspectType.ScaleWithParentSize,
+	}, parent) :: UIAspectRatioConstraint
+end
+
 local function create_frame(parent: Instance, name: string, position: UDim2, size: UDim2, color: Color3, visible: boolean): Frame
 	local frame = create_instance("Frame", {
 		Name = name,
@@ -324,11 +338,11 @@ local function create_options_page(content: Frame): ()
 		create_panel(page, column.title .. "OptionsPanel", UDim2.fromScale(column.x, 0.14), UDim2.fromScale(0.3, 0.8))
 	end
 
-	create_button(page, UIDictionary.buttons.storyQuest, "Enter the Courtyard", UDim2.fromScale(0.05, 0.2), UDim2.fromScale(0.24, 0.12), UIDictionary.colors.darkButton, UIDictionary.colors.whiteText)
-	create_button(page, UIDictionary.buttons.cryQuest, "Wander the Halls", UDim2.fromScale(0.4, 0.18), UDim2.fromScale(0.18, 0.18), UIDictionary.colors.darkButton, UIDictionary.colors.whiteText)
-	create_button(page, UIDictionary.buttons.sleepQuest, "Sleep", UDim2.fromScale(0.4, 0.4), UDim2.fromScale(0.18, 0.18), UIDictionary.colors.darkButton, UIDictionary.colors.whiteText)
-	create_button(page, UIDictionary.buttons.wiggleQuest, "Talk to Servants", UDim2.fromScale(0.4, 0.62), UDim2.fromScale(0.18, 0.18), Color3.fromRGB(124, 78, 78), UIDictionary.colors.whiteText)
-	create_button(page, UIDictionary.buttons.exorciseQuest, "Exorcise", UDim2.fromScale(0.52, 0.4), UDim2.fromScale(0.18, 0.18), Color3.fromRGB(92, 55, 140), UIDictionary.colors.whiteText)
+	create_button(page, UIDictionary.buttons.storyQuest, "Story Locked", UDim2.fromScale(0.05, 0.2), UDim2.fromScale(0.24, 0.12), UIDictionary.colors.darkButton, UIDictionary.colors.whiteText)
+	create_button(page, UIDictionary.buttons.cryQuest, "Look Around", UDim2.fromScale(0.4, 0.18), UDim2.fromScale(0.18, 0.18), UIDictionary.colors.darkButton, UIDictionary.colors.whiteText)
+	create_button(page, UIDictionary.buttons.sleepQuest, "Find Snacks", UDim2.fromScale(0.4, 0.4), UDim2.fromScale(0.18, 0.18), UIDictionary.colors.darkButton, UIDictionary.colors.whiteText)
+	create_button(page, UIDictionary.buttons.wiggleQuest, "Catch Breath", UDim2.fromScale(0.4, 0.62), UDim2.fromScale(0.18, 0.18), Color3.fromRGB(124, 78, 78), UIDictionary.colors.whiteText)
+	create_button(page, UIDictionary.buttons.exorciseQuest, "Talk to Servants", UDim2.fromScale(0.52, 0.4), UDim2.fromScale(0.18, 0.18), Color3.fromRGB(92, 55, 140), UIDictionary.colors.whiteText)
 	create_label(page, UIDictionary.labels.upgradeStatus, "JJK upgrades use Souls and Shards.", UDim2.fromScale(0.7, 0.18), UDim2.fromScale(0.26, 0.16), UIDictionary.colors.mutedText, Enum.Font.GothamBold, Enum.TextXAlignment.Center)
 	create_button(page, UIDictionary.buttons.upgradeCursedBody, "Cursed Body", UDim2.fromScale(0.72, 0.38), UDim2.fromScale(0.22, 0.1), UIDictionary.colors.card, UIDictionary.colors.whiteText)
 	create_button(page, UIDictionary.buttons.upgradeCursedControl, "Cursed Control", UDim2.fromScale(0.72, 0.52), UDim2.fromScale(0.22, 0.1), UIDictionary.colors.card, UIDictionary.colors.whiteText)
@@ -358,9 +372,12 @@ local function create_stats_page(content: Frame): ()
 	create_label(statsPanel, UIDictionary.labels.statsValue, "Strength: 0\nVitality: 0\nSpeed: 0\nDefense: 0", UDim2.fromScale(0.04, 0.08), UDim2.fromScale(0.92, 0.84), UIDictionary.colors.text, Enum.Font.GothamBold, Enum.TextXAlignment.Left)
 
 	local actionPanel = create_panel(page, "BattleActionPanel", UDim2.fromScale(0.53, 0.76), UDim2.fromScale(0.43, 0.18))
-	create_button(actionPanel, UIDictionary.buttons.punch, "Punch", UDim2.fromScale(0.07, 0.12), UDim2.fromScale(0.38, 0.32), UIDictionary.colors.card, UIDictionary.colors.text)
-	create_button(actionPanel, UIDictionary.buttons.whack, "Whack", UDim2.fromScale(0.55, 0.12), UDim2.fromScale(0.38, 0.32), UIDictionary.colors.card, UIDictionary.colors.text)
-	create_button(actionPanel, UIDictionary.buttons.block, "Block", UDim2.fromScale(0.31, 0.56), UDim2.fromScale(0.38, 0.32), UIDictionary.colors.card, UIDictionary.colors.text)
+	local punchButton = create_button(actionPanel, UIDictionary.buttons.punch, "Punch", UDim2.fromScale(0.12, 0.12), UDim2.fromScale(0.24, 0.32), UIDictionary.colors.card, UIDictionary.colors.text)
+	local whackButton = create_button(actionPanel, UIDictionary.buttons.whack, "Whack", UDim2.fromScale(0.64, 0.12), UDim2.fromScale(0.24, 0.32), UIDictionary.colors.card, UIDictionary.colors.text)
+	local blockButton = create_button(actionPanel, UIDictionary.buttons.block, "Block", UDim2.fromScale(0.38, 0.56), UDim2.fromScale(0.24, 0.32), UIDictionary.colors.card, UIDictionary.colors.text)
+	add_square_constraint(punchButton)
+	add_square_constraint(whackButton)
+	add_square_constraint(blockButton)
 end
 
 local function create_quest_card(parent: Instance, questDef: any, yPos: number): ()
@@ -375,7 +392,8 @@ local function create_quest_card(parent: Instance, questDef: any, yPos: number):
 
 	-- Progress bar
 	local bar = create_bar(card, "ProgressBar", "ProgressFill", UDim2.fromScale(0.05, 0.65), UDim2.fromScale(0.6, 0.18), UIDictionary.colors.blueAction)
-	create_label(bar, "ProgressText", "0 / " .. tostring(questDef.requiredProgress), UDim2.fromScale(0, 0), UDim2.fromScale(1, 1), UIDictionary.colors.whiteText, Enum.Font.GothamBlack, Enum.TextXAlignment.Center)
+	local progressHint = if questDef.questType == "Story" then "No chapter available." else "Repeatable action."
+	create_label(bar, "ProgressText", progressHint, UDim2.fromScale(0, 0), UDim2.fromScale(1, 1), UIDictionary.colors.whiteText, Enum.Font.GothamBlack, Enum.TextXAlignment.Center)
 
 	-- Action / claim button using the exact quest id
 	create_button(card, questDef.id .. "Button", "Action", UDim2.fromScale(0.7, 0.55), UDim2.fromScale(0.25, 0.35), UIDictionary.colors.darkButton, UIDictionary.colors.whiteText)
